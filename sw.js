@@ -1,4 +1,4 @@
-const CACHE = 'ledger-v10';
+const CACHE = 'ledger-v11';
 const ASSETS = [
   './',
   './index.html',
@@ -6,6 +6,13 @@ const ASSETS = [
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './vendor/fonts/fraunces-normal-100-900.woff2',
+  './vendor/fonts/fraunces-italic-100-900.woff2',
+  './vendor/fonts/instrument-sans-normal-400-700.woff2',
+  './vendor/fonts/instrument-sans-italic-400-700.woff2',
+  './vendor/fonts/ibm-plex-mono-normal-400.woff2',
+  './vendor/fonts/ibm-plex-mono-normal-500.woff2',
+  './vendor/fonts/ibm-plex-mono-normal-600.woff2',
   './vendor/tesseract.min.js',
   './vendor/worker.min.js',
   './vendor/tesseract-core-simd.wasm.js',
