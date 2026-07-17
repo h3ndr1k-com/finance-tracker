@@ -263,6 +263,31 @@ progress { width: 100%; accent-color: var(--accent); }
 .jarcard .jspend { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .jarcard .jedit { position: absolute; top: 10px; right: 10px; opacity: 0; transition: opacity .15s; }
 .jarcard:hover .jedit { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .card, .jarcard { transition: transform .25s cubic-bezier(.2,.7,.2,1), box-shadow .25s cubic-bezier(.2,.7,.2,1); }
+  .card:hover, .jarcard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(29,33,41,.05), 0 16px 32px -14px rgba(29,33,41,.16);
+  }
+  :root[data-theme="dark"] .card:hover, :root[data-theme="dark"] .jarcard:hover {
+    box-shadow: 0 2px 4px rgba(0,0,0,.3), 0 16px 36px -14px rgba(0,0,0,.6);
+  }
+  .spark .line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: drawline 1.3s cubic-bezier(.4,0,.2,1) .15s forwards; }
+  .spark .fillarea { opacity: 0; animation: fadein .7s ease .9s forwards; }
+  .trend .bar { transform-box: fill-box; transform-origin: bottom; animation: growbar .65s cubic-bezier(.2,.7,.2,1) both; }
+  .donutseg { transition: stroke-dasharray .9s cubic-bezier(.4,0,.2,1); }
+  .barfill { animation: growx .7s cubic-bezier(.2,.7,.2,1) both; }
+  .hero { background-size: 200% 200%, 200% 200%, auto; animation: herodrift 18s ease-in-out infinite alternate; }
+  nav.topnav button, .jartag, .pill { transition: transform .15s, background .15s, color .15s, border-color .15s; }
+  tbody tr:hover td:first-child { transform: translateX(2px); }
+  tbody td { transition: transform .2s cubic-bezier(.2,.7,.2,1); }
+}
+@keyframes drawline { to { stroke-dashoffset: 0; } }
+@keyframes fadein { to { opacity: 1; } }
+@keyframes growbar { from { transform: scaleY(0.02); } }
+@keyframes growx { from { width: 0 !important; } }
+@keyframes herodrift { from { background-position: 0% 0%, 100% 100%, 0 0; } to { background-position: 100% 50%, 0% 50%, 0 0; } }
 .pctwarn { color: var(--coral); font-size: 13px; margin-top: 4px; }
 
 nav.tabbar { display: none; }
@@ -509,7 +534,7 @@ function rateTooltip(cur) {
   const base = S.settings.base; if (cur === base) return '';
   const f = eurPer(cur), b = eurPer(base); const eff = f.rate / b.rate;
   const dates = [f.date, b.date].filter(Boolean).join(', ');
-  return `1 ${cur} = ${eff.toFixed(4)} ${base}${dates ? ' (rate set ' + dates + ')' : ''}${f.missing ? ' — NO RATE SET, using 1:1' : ''}`;
+  return `1 ${cur} = ${eff.toFixed(4)} ${base}${dates ? ' (rate set ' + dates + ')' : ''}${f.missing ? '. NO RATE SET, using 1:1' : ''}`;
 }
 
 /* ---------- categorization & jars ---------- */
@@ -618,7 +643,7 @@ async function handleFiles(files) {
 }
 async function processQueue() {
   if (importing) return; importing = true;
-  while (importQueue.length) { const item = importQueue.shift(); try { if (item.type === 'csv') await importCSVFile(item.file); else await scanReceipt(item.file); } catch (e) { console.error(e); toast(`Failed: ${item.file.name} — ${e.message}`); } }
+  while (importQueue.length) { const item = importQueue.shift(); try { if (item.type === 'csv') await importCSVFile(item.file); else await scanReceipt(item.file); } catch (e) { console.error(e); toast(`Failed: ${item.file.name}: ${e.message}`); } }
   importing = false;
 }
 async function importCSVFile(file) {
@@ -669,10 +694,10 @@ async function ingestRows(dataRows, cfg) {
 function showMappingModal(filename, header, dataRows, cfg, signature) {
   return new Promise((resolve) => {
     const modal = $('#mappingModal'), body = $('#mappingBody');
-    const colOpts = (sel) => `<option value="-1">—</option>` + header.map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h) || 'col ' + (i + 1)}</option>`).join('');
+    const colOpts = (sel) => `<option value="-1">-</option>` + header.map((h, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(h) || 'col ' + (i + 1)}</option>`).join('');
     const preview = dataRows.slice(0, 4);
     body.innerHTML = `
-      <h2>Map columns — ${esc(filename)}</h2>
+      <h2>Map columns: ${esc(filename)}</h2>
       <div class="sub">Check the auto-detected mapping, name the account, confirm currency.</div>
       <div class="tablewrap" style="margin-bottom:14px"><table class="previewtable">
         <tr>${header.map(h => `<th>${esc(h)}</th>`).join('')}</tr>
@@ -727,7 +752,7 @@ async function scanReceipt(file) {
   showReceiptModal({ stage: 'working', imgUrl: url });
   let parsed = { merchant: '', date: todayISO(), total: null, currency: S.settings.base };
   try { const w = await getOcrWorker(); const { data } = await w.recognize(file); parsed = parseReceiptText(data.text || ''); }
-  catch (e) { console.error('OCR failed', e); toast('OCR failed — fill in manually'); }
+  catch (e) { console.error('OCR failed', e); toast('OCR failed. Fill in manually'); }
   await new Promise((resolve) => showReceiptModal({ stage: 'confirm', imgUrl: url, parsed, file, resolve }));
   URL.revokeObjectURL(url);
 }
@@ -750,7 +775,7 @@ function showReceiptModal(opts) {
     if (isNaN(amount) || !$('#rDate').value) { toast('Amount and date required'); return; }
     const t = { date: $('#rDate').value, desc: $('#rMerchant').value.trim() || 'Receipt', amount: -Math.abs(amount), currency: $('#rCur').value, account: $('#rAccount').value.trim() || 'Receipts', source: 'receipt', category: $('#rCat').value, transfer: false };
     t.id = txHash(t);
-    if (S.txIds.has(t.id)) { toast('Duplicate — already saved'); modal.classList.remove('open'); opts.resolve(); return; }
+    if (S.txIds.has(t.id)) { toast('Duplicate, already saved'); modal.classList.remove('open'); opts.resolve(); return; }
     const thumb = await makeThumb(opts.file).catch(() => null);
     if (thumb) { t.hasThumb = true; await DB.putReceipt(t.id, thumb); }
     await DB.putTx([t]); S.tx.push(t); S.txIds.add(t.id);
@@ -865,11 +890,11 @@ function sparkline() {
   const path = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
   return `<svg class="chart spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
     <defs><linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
-    <path d="${path}L${W},${H}L0,${H}Z" fill="url(#sparkfill)"/><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+    <path class="fillarea" d="${path}L${W},${H}L0,${H}Z" fill="url(#sparkfill)"/><path class="line" pathLength="1" d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 function donutChart(entries, centerLabel, centerValue) {
   const total = entries.reduce((s, e) => s + e.value, 0) || 1; const R = 52, CIRC = 2 * Math.PI * R; let offset = 0;
-  const segs = entries.map(e => { const frac = e.value / total; const seg = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${e.color}" stroke-width="16" stroke-dasharray="${(frac * CIRC).toFixed(2)} ${CIRC.toFixed(2)}" stroke-dashoffset="${(-offset * CIRC).toFixed(2)}" transform="rotate(-90 70 70)"><title>${esc(e.label)}: ${esc(e.fmt)}</title></circle>`; offset += frac; return seg; }).join('');
+  const segs = entries.map(e => { const frac = e.value / total; const seg = `<circle class="donutseg" cx="70" cy="70" r="${R}" fill="none" stroke="${e.color}" stroke-width="16" stroke-dasharray="0 ${CIRC.toFixed(2)}" data-final="${(frac * CIRC).toFixed(2)} ${CIRC.toFixed(2)}" stroke-dashoffset="${(-offset * CIRC).toFixed(2)}" transform="rotate(-90 70 70)"><title>${esc(e.label)}: ${esc(e.fmt)}</title></circle>`; offset += frac; return seg; }).join('');
   return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px">
     <svg width="140" height="140" viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">${segs}<text x="70" y="75" text-anchor="middle" font-size="12" fill="var(--muted)" font-family="var(--body)">${esc(centerLabel)}</text></svg>
     <span class="num" style="font-family:var(--display);font-size:17px;font-weight:600">${esc(centerValue)}</span></div>`;
@@ -880,24 +905,44 @@ function trendChart(months, agg) {
   const maxV = Math.max(...months.flatMap(m => [agg[m].income, agg[m].expense]), 1); const y = (v) => H - 26 - (v / maxV) * (H - 50); let bars = '';
   months.forEach((m, i) => {
     const x = pad + i * bw; const iw = Math.min(24, bw * 0.30); const yi = y(agg[m].income), ye = y(agg[m].expense);
-    bars += `<rect x="${(x + bw / 2 - iw - 2).toFixed(1)}" y="${yi.toFixed(1)}" width="${iw}" height="${(H - 26 - yi).toFixed(1)}" rx="5" fill="var(--accent)"><title>${monthLabel(m)} income: ${esc(baseFmt(agg[m].income))}</title></rect>`;
-    bars += `<rect x="${(x + bw / 2 + 2).toFixed(1)}" y="${ye.toFixed(1)}" width="${iw}" height="${(H - 26 - ye).toFixed(1)}" rx="5" fill="var(--coral)" opacity="0.85"><title>${monthLabel(m)} spend: ${esc(baseFmt(agg[m].expense))}</title></rect>`;
+    bars += `<rect class="bar" style="animation-delay:${(i * 70)}ms" x="${(x + bw / 2 - iw - 2).toFixed(1)}" y="${yi.toFixed(1)}" width="${iw}" height="${(H - 26 - yi).toFixed(1)}" rx="5" fill="var(--accent)"><title>${monthLabel(m)} income: ${esc(baseFmt(agg[m].income))}</title></rect>`;
+    bars += `<rect class="bar" style="animation-delay:${(i * 70 + 40)}ms" x="${(x + bw / 2 + 2).toFixed(1)}" y="${ye.toFixed(1)}" width="${iw}" height="${(H - 26 - ye).toFixed(1)}" rx="5" fill="var(--coral)" opacity="0.85"><title>${monthLabel(m)} spend: ${esc(baseFmt(agg[m].expense))}</title></rect>`;
     bars += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="var(--muted)">${monthLabel(m)}</text>`;
   });
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><line x1="${pad}" y1="${H - 26}" x2="${W - pad}" y2="${H - 26}" stroke="var(--hairline)"/>${bars}</svg>`;
+  return `<svg class="chart trend" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><line x1="${pad}" y1="${H - 26}" x2="${W - pad}" y2="${H - 26}" stroke="var(--hairline)"/>${bars}</svg>`;
 }
 
 /* ---------- rendering ---------- */
 function renderAll() { renderOverview(); renderTransactions(); renderJars(); renderBudgets(); }
 function baseFmt(v, opts) { return fmtMoney(v, S.settings.base, opts); }
 
+const MOTION_OK = matchMedia('(prefers-reduced-motion: no-preference)').matches;
+function enterCharts(scope) {
+  const root = document.querySelector(scope) || document;
+  const segs = root.querySelectorAll('.donutseg');
+  if (!MOTION_OK) { segs.forEach(c => c.setAttribute('stroke-dasharray', c.dataset.final)); return; }
+  if (segs.length) { segs[0].getBoundingClientRect(); }
+  setTimeout(() => segs.forEach(c => c.setAttribute('stroke-dasharray', c.dataset.final)), 40);
+  root.querySelectorAll('.cu').forEach(el => {
+    const target = parseFloat(el.dataset.v); const cur = el.dataset.cur || S.settings.base;
+    if (isNaN(target)) return;
+    const dur = 750, t0 = performance.now(); const finalText = el.textContent;
+    const step = () => {
+      const p = Math.min(1, (performance.now() - t0) / dur); const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = p < 1 ? fmtMoney(target * eased, cur) : finalText;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
 function renderOverview() {
   const el = $('#view-overview');
   if (!S.tx.length) {
     el.innerHTML = `<div class="card empty"><span class="serif">A quiet ledger.</span>
-      Import a CSV statement, scan a receipt, or add a transaction above — or try it with sample data.
+      Import a CSV statement, scan a receipt, or add a transaction above. Or try it with sample data.
       <div class="actions"><button class="primary" id="loadSampleBtn">Load sample data</button></div>
-      <div class="sub" style="margin-top:14px">Everything stays on this device — no cloud, no account.</div></div>`;
+      <div class="sub" style="margin-top:14px">Everything stays on this device. No cloud, no account.</div></div>`;
     $('#loadSampleBtn').onclick = loadSampleData; return;
   }
   const base = S.settings.base; const byAcct = {};
@@ -916,14 +961,14 @@ function renderOverview() {
   el.innerHTML = `
     <div class="card hero">
       <div class="label">Net position · all accounts</div>
-      <div class="big num">${baseFmt(net)}</div>
+      <div class="big num cu" data-v="${net}">${baseFmt(net)}</div>
       <div class="sub" style="margin-top:4px">across ${Object.keys(byAcct).length} accounts, shown in ${base}</div>
       ${sparkline()}
     </div>
     <div class="grid2 gridrow">
-      <div class="card"><div class="label">${monthLabel(mk)} income</div><div class="mid num pos">${baseFmt(cur.income)}</div></div>
+      <div class="card"><div class="label">${monthLabel(mk)} income</div><div class="mid num pos cu" data-v="${cur.income}">${baseFmt(cur.income)}</div></div>
       <div class="card"><div class="label">${monthLabel(mk)} spend</div>
-        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap"><div class="mid num">${baseFmt(cur.expense)}</div>${delta !== null ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(0)}%</span>` : ''}</div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap"><div class="mid num cu" data-v="${cur.expense}">${baseFmt(cur.expense)}</div>${delta !== null ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(0)}%</span>` : ''}</div>
         <div class="sub num">${prev.expense ? `${monthLabel(pm)}: ${baseFmt(prev.expense)}` : 'no data last month'}</div></div>
     </div>
     <div class="grid2 gridrow">
@@ -935,9 +980,9 @@ function renderOverview() {
       <div class="cardhead"><div class="label">Recurring & subscriptions</div>${recurring.length ? `<span class="sub num">${baseFmt(recTotal)}/mo · ${baseFmt(recTotal * 12)}/yr</span>` : ''}</div>
       ${recurring.length ? `<div class="reclist">${recurring.slice(0, 8).map(r => `
         <div class="recrow"><span class="dot" style="background:${catColor(r.cat)}"></span>
-          <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)}→${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× · monthly · ${esc(r.cat)}</span></span>
+          <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly · ${esc(r.cat)}</span></span>
           <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span></div>`).join('')}</div>`
-        : '<div class="sub">No recurring charges detected yet — needs 2+ months of a merchant to spot a pattern.</div>'}
+        : '<div class="sub">No recurring charges detected yet. Needs 2+ months of a merchant to spot a pattern.</div>'}
     </div>
     <div class="card">
       <div class="label">Accounts</div>
@@ -946,6 +991,7 @@ function renderOverview() {
           <span class="name">${esc(name)}<span class="sub">${a.mixed ? 'multi-currency' : a.cur}</span></span>
           <span class="bal num" title="${a.mixed ? '' : esc(rateTooltip(a.cur))}"><span class="${a.base < 0 ? 'neg' : ''}">${baseFmt(a.base)}</span>${a.mixed || a.cur === base ? '' : `<span class="sub num">${fmtMoney(a.native, a.cur)}</span>`}</span></div>`).join('')}</div>
     </div>`;
+  enterCharts('#view-overview');
 }
 
 /* ---------- transactions ---------- */
@@ -968,7 +1014,7 @@ function renderTransactions() {
       <td class="num sub" style="white-space:nowrap">${t.date}</td>
       <td>${esc(t.desc)}${t.source === 'receipt' ? ' <span class="pill">receipt</span>' : ''}${t.transfer ? ' <span class="pill grey">transfer</span>' : ''}</td>
       <td><span class="catpill"><span class="dot" style="background:${catColor(t.category)}"></span><select class="catselect" data-id="${t.id}">${CATEGORIES.map(c => `<option ${c === t.category ? 'selected' : ''}>${c}</option>`).join('')}</select></span></td>
-      <td>${t.transfer ? '<span class="sub">—</span>' : `<span class="jartag" data-jar-id="${t.id}">${jar ? esc(jar.name) : 'set jar'}</span>`}</td>
+      <td>${t.transfer ? '<span class="sub">-</span>' : `<span class="jartag" data-jar-id="${t.id}">${jar ? esc(jar.name) : 'set jar'}</span>`}</td>
       <td class="sub">${esc(t.account)}</td>
       <td class="amt num ${t.amount >= 0 ? 'pos' : ''}" title="${esc(rateTooltip(t.currency))}">${fmtMoney(t.amount, t.currency, { plus: true })}${same ? '' : `<br><span class="sub num">${baseFmt(conv, { plus: true })}</span>`}</td>
     </tr>`;
@@ -979,7 +1025,7 @@ function renderTransactions() {
       <th data-sort="date">Date${arrow('date')}</th><th data-sort="desc">Description${arrow('desc')}</th>
       <th data-sort="category">Category${arrow('category')}</th><th>Jar</th><th data-sort="account">Account${arrow('account')}</th>
       <th data-sort="amount" class="amt">Amount${arrow('amount')}</th>
-    </tr></thead><tbody>${rows}</tbody></table>${list.length > 500 ? `<div class="sub" style="padding:10px">Showing 500 of ${list.length} — narrow the filters.</div>` : ''}`
+    </tr></thead><tbody>${rows}</tbody></table>${list.length > 500 ? `<div class="sub" style="padding:10px">Showing 500 of ${list.length}, narrow the filters.</div>` : ''}`
     : '<div class="empty">No matching transactions.</div>';
 
   $$('#txTable th[data-sort]').forEach(th => th.onclick = () => { const c = th.dataset.sort; if (sortCol === c) sortDir = -sortDir; else { sortCol = c; sortDir = c === 'date' ? -1 : 1; } renderTransactions(); });
@@ -1033,7 +1079,7 @@ function renderJars() {
           return `<div class="jarcard">
             <button class="iconbtn jedit" data-edit-jar="${j.id}">✎</button>
             <div class="jtop"><span class="dot" style="background:${j.color};width:11px;height:11px"></span><span class="jname">${esc(j.name)}</span><span class="jpct">${j.pct}%</span></div>
-            <div class="jbal num ${bal[j.id] < 0 ? 'neg' : ''}">${baseFmt(bal[j.id])}</div>
+            <div class="jbal num cu ${bal[j.id] < 0 ? 'neg' : ''}" data-v="${bal[j.id]}">${baseFmt(bal[j.id])}</div>
             <div class="jspend num">this mo: +${baseFmt(alloc)} in · −${baseFmt(spend)} out</div>
           </div>`;
         }).join('')}
@@ -1052,7 +1098,7 @@ function renderJars() {
       <div class="sub" style="margin-bottom:10px">Which jar each category's spending draws from. Override any single transaction on the Transactions tab.</div>
       ${CATEGORIES.filter(c => c !== 'Income' && c !== 'Transfer').map(c => `
         <div class="formrow" style="margin-bottom:6px"><label style="min-width:130px"><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</label>
-        <select data-catjar="${c}" style="flex:none"><option value="">— none —</option>${S.jars.map(j => `<option value="${j.id}" ${S.catJar[c] === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>`).join('')}
+        <select data-catjar="${c}" style="flex:none"><option value="">none</option>${S.jars.map(j => `<option value="${j.id}" ${S.catJar[c] === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>`).join('')}
     </div>`;
   $('#addJarBtn').onclick = () => openJarEditor(null);
   $$('[data-edit-jar]').forEach(b => b.onclick = () => openJarEditor(b.dataset.editJar));
@@ -1064,6 +1110,7 @@ function renderJars() {
     S.jarMoves.push({ id: uid(), from, to, amount: amt, date: todayISO() }); await DB.kvSet('jarMoves', S.jarMoves); toast('Moved'); renderJars();
   };
   $$('[data-undo-move]').forEach(b => b.onclick = async () => { S.jarMoves = S.jarMoves.filter(m => m.id !== b.dataset.undoMove); await DB.kvSet('jarMoves', S.jarMoves); renderJars(); });
+  enterCharts('#view-jars');
 }
 function openJarEditor(id) {
   const modal = $('#jarModal'), body = $('#jarBody'); const j = id ? jarById(id) : { name: '', pct: 10, color: JAR_PALETTE[S.jars.length % JAR_PALETTE.length] };
@@ -1107,9 +1154,9 @@ function showSettings() {
     <h2>Settings</h2><div class="sub">All data stays on this device.</div>
     <div class="formrow"><label>Base currency</label><select id="sBase" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <h2 style="margin-top:18px">Exchange rates</h2>
-    <div class="sub">EUR per 1 unit of each currency. Edit anytime — every view recalculates. Cross rates go through EUR.</div>
+    <div class="sub">EUR per 1 unit of each currency. Edit anytime, every view recalculates. Cross rates go through EUR.</div>
     <div class="tablewrap"><table class="ratestable"><tr><th>Currency</th><th>EUR per 1</th><th>Date set</th></tr>
-      ${curs.map(c => { const r = S.rates.find(x => x.cur === c) || { cur: c, eurPer: '', date: '' }; return `<tr><td>${c}</td><td><input type="number" step="0.0001" min="0" data-rcur="${c}" class="rateinp num" value="${r.eurPer}"></td><td class="sub num">${r.date || '—'}</td></tr>`; }).join('')}
+      ${curs.map(c => { const r = S.rates.find(x => x.cur === c) || { cur: c, eurPer: '', date: '' }; return `<tr><td>${c}</td><td><input type="number" step="0.0001" min="0" data-rcur="${c}" class="rateinp num" value="${r.eurPer}"></td><td class="sub num">${r.date || '-'}</td></tr>`; }).join('')}
     </table></div>
     <h2 style="margin-top:18px">Data</h2>
     <div class="formrow" style="margin-top:10px"><button class="ghost" id="sSample">Load sample data</button><button class="ghost" id="sExport">Export JSON</button><button class="ghost danger" id="sWipe">Wipe all data</button></div>
@@ -1125,7 +1172,7 @@ function showSettings() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ledger-export-${todayISO()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
   $('#sWipe').onclick = async () => {
-    if (!confirm('Delete ALL local data — transactions, jars, rules, rates, budgets? This cannot be undone.')) return;
+    if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets? This cannot be undone.')) return;
     await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], settings: { base: S.settings.base, theme: S.settings.theme } });
     S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar);
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
@@ -1142,15 +1189,15 @@ function loadSampleData() {
   Object.entries(accts).forEach(([n, c]) => { if (!(n in S.accounts)) S.accounts[n] = { currency: c }; });
   S.budgets = Object.assign({ Groceries: 600, Dining: 300, Subscriptions: 120, Transport: 150 }, S.budgets);
   DB.putTx(added); DB.kvSet('accounts', S.accounts); DB.kvSet('budgets', S.budgets);
-  toast(`Sample data loaded — ${added.length} transactions`); renderAll();
+  toast(`Sample data loaded: ${added.length} transactions`); renderAll();
 }
 function buildSampleData() {
   const months = ['2026-05', '2026-06', '2026-07']; const out = [];
   const add = (date, desc, amount, currency, account, transfer) => { const category = categorize(desc); out.push({ date, desc, amount, currency, account, source: 'sample', category, transfer: transfer ?? (category === 'Transfer' || category === 'Investments') }); };
   months.forEach((m, i) => {
-    add(`${m}-01`, 'Payroll — Northwind Studio', 4200, 'CAD', 'Chequing');
-    add(`${m}-02`, 'Stripe payout — freelance invoices', 1850 + i * 120, 'USD', 'Freelance USD');
-    add(`${m}-01`, 'Rent — Maple Court Apartments', -1800, 'CAD', 'Chequing');
+    add(`${m}-01`, 'Payroll - Northwind Studio', 4200, 'CAD', 'Chequing');
+    add(`${m}-02`, 'Stripe payout - freelance invoices', 1850 + i * 120, 'USD', 'Freelance USD');
+    add(`${m}-01`, 'Rent - Maple Court Apartments', -1800, 'CAD', 'Chequing');
     add(`${m}-03`, 'Loblaws Market', -[142.18, 96.40, 178.55][i], 'CAD', 'Amex');
     add(`${m}-11`, 'Metro Grocery', -[88.40, 124.10, 61.75][i], 'CAD', 'Amex');
     add(`${m}-17`, 'Costco Wholesale', -[211.05, 148.90, 263.40][i], 'CAD', 'Amex');
@@ -1164,13 +1211,13 @@ function buildSampleData() {
     add(`${m}-12`, 'Anthropic Claude', -20.00, 'USD', 'Freelance USD');
     add(`${m}-25`, 'REWE Supermarkt', -[63.15, 41.80, 88.30][i], 'EUR', 'EU Bank');
     add(`${m}-20`, 'Vodafone Mobil', -29.99, 'EUR', 'EU Bank');
-    add(`${m}-28`, 'Amex payment — thank you', 900, 'CAD', 'Chequing', true);
+    add(`${m}-28`, 'Amex payment - thank you', 900, 'CAD', 'Chequing', true);
     add(`${m}-28`, 'Amex payment received', -900, 'CAD', 'Amex', true);
     add(`${m}-15`, 'Transfer to Wealthsimple Invest', -600, 'CAD', 'Chequing', true);
-    add(`${m}-15`, 'Contribution — TFSA', 600, 'CAD', 'WS Invest', true);
+    add(`${m}-15`, 'Contribution - TFSA', 600, 'CAD', 'WS Invest', true);
   });
   add('2026-07-11', 'Maple Cafe', -20.91, 'CAD', 'Amex');
-  add('2026-06-24', 'Air Canada — flight to Berlin', -684.00, 'CAD', 'Amex');
+  add('2026-06-24', 'Air Canada - flight to Berlin', -684.00, 'CAD', 'Amex');
   add('2026-07-09', 'Airbnb Lisbon', -420.00, 'EUR', 'EU Bank');
   return out;
 }
