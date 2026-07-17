@@ -280,6 +280,24 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .recrow .name { flex: 1; min-width: 0; }
 .recrow .name .sub { display: block; }
 
+.sparkwrap { position: relative; touch-action: none; cursor: crosshair; }
+.hero .sparkwrap { margin: 14px -20px 0; }
+.hero .sparkwrap .spark { margin: 0; }
+.scrubline { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--ink) 40%, transparent); opacity: 0; pointer-events: none; transition: opacity .15s; }
+.scrubdot { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); border: 2px solid var(--card); transform: translate(-50%, -50%); opacity: 0; pointer-events: none; transition: opacity .15s; }
+.scrubline.on, .scrubdot.on { opacity: 1; }
+.sparkinfo { margin-top: 12px; border-top: 1px solid var(--hairline); padding-top: 10px; font-size: 13px; min-height: 40px; }
+.sirow { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.sirow .silab { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sirow .sival { white-space: nowrap; }
+.sirow .sival.dim { color: var(--muted); }
+.sirow.head { font-weight: 600; padding-bottom: 6px; }
+
+.acctrow, .recrow { cursor: pointer; margin: 0 -10px; padding-left: 10px; padding-right: 10px; border-radius: 10px; transition: background .15s; }
+.acctrow:hover, .recrow:hover { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); }
+.donutlegend .row[data-cat] { cursor: pointer; border-radius: 8px; margin: 0 -6px; padding-left: 6px; padding-right: 6px; transition: background .15s; }
+.donutlegend .row[data-cat]:hover { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); }
+
 .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; }
 .legend .li::before { background: var(--accent); }
@@ -411,6 +429,7 @@ nav.tabbar { display: none; }
 <div class="modal-backdrop" id="settingsModal"><div class="modal" id="settingsBody"></div></div>
 <div class="modal-backdrop" id="editModal"><div class="modal" id="editBody"></div></div>
 <div class="modal-backdrop" id="jarModal"><div class="modal" id="jarBody"></div></div>
+<div class="modal-backdrop" id="detailModal"><div class="modal" id="detailBody"></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1012,22 +1031,76 @@ function detectRecurring() {
     const stable = (Math.max(...amts) - Math.min(...amts)) / mid < 0.08;
     let monotonicUp = last > first * 1.03; for (let i = 1; i < amts.length; i++) if (amts[i] < amts[i - 1] * 0.99) monotonicUp = false;
     if (!stable && !monotonicUp) continue; // recurring bills/subs only: fixed or steadily rising, not fluctuating spend
-    out.push({ name: items[items.length - 1].desc, monthly: last, annual: last * 12, count: items.length, cat: items[items.length - 1].category, hike: monotonicUp && last > first * 1.03 ? { from: first, to: last } : null });
+    out.push({ name: items[items.length - 1].desc, monthly: last, annual: last * 12, count: items.length, cat: items[items.length - 1].category, hike: monotonicUp && last > first * 1.03 ? { from: first, to: last } : null, items });
   }
   return out.sort((a, b) => b.monthly - a.monthly);
 }
 
 /* ---------- charts ---------- */
-function sparkline() {
-  const sorted = [...S.tx].sort((a, b) => a.date < b.date ? -1 : 1);
-  if (sorted.length < 2) return '';
-  const pts = []; let sum = 0; for (const t of sorted) { sum += toBase(t.amount, t.currency); pts.push(sum); }
-  const W = 600, H = 90; const min = Math.min(...pts, 0), max = Math.max(...pts, 1);
-  const x = (i) => (i / (pts.length - 1)) * W; const y = (v) => 8 + (H - 16) * (1 - (v - min) / (max - min || 1));
-  const path = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
-  return `<svg class="chart spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-    <defs><linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
-    <path class="fillarea" d="${path}L${W},${H}L0,${H}Z" fill="url(#sparkfill)"/><path class="line" pathLength="1" d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+function dailySeries() {
+  const sorted = [...S.tx].sort((a, b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : (a.id < b.id ? -1 : 1)));
+  const days = []; let sum = 0;
+  for (const t of sorted) {
+    const v = toBase(t.amount, t.currency); sum += v;
+    const last = days[days.length - 1];
+    if (last && last.date === t.date) { last.bal = sum; last.delta += v; last.txs.push(t); }
+    else days.push({ date: t.date, bal: sum, delta: v, txs: [t] });
+  }
+  return days;
+}
+function dayLabel(iso) { return new Date(iso + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); }
+function sparkYFrac(days) {
+  const min = Math.min(...days.map(d => d.bal), 0), max = Math.max(...days.map(d => d.bal), 1);
+  return (v) => (8 + (90 - 16) * (1 - (v - min) / (max - min || 1))) / 90;
+}
+function sparkline(days) {
+  if (days.length < 2) return '';
+  const W = 600, H = 90; const yF = sparkYFrac(days);
+  const x = (i) => (i / (days.length - 1)) * W;
+  const path = days.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${(yF(d.bal) * H).toFixed(1)}`).join('');
+  return `<div class="sparkwrap">
+    <svg class="chart spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <defs><linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity="0.22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+      <path class="fillarea" d="${path}L${W},${H}L0,${H}Z" fill="url(#sparkfill)"/><path class="line" pathLength="1" d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    <div class="scrubline"></div><div class="scrubdot"></div>
+  </div>
+  <div class="sparkinfo num" id="sparkInfo"></div>`;
+}
+/* Scrub the net-position line: hover or drag picks a day, the panel below the
+   chart explains it with that day's transactions - the "why is there a dip" view. */
+function attachSparkScrub(days) {
+  const wrap = $('#view-overview .sparkwrap'); if (!wrap || days.length < 2) return;
+  const info = $('#sparkInfo');
+  const line = wrap.querySelector('.scrubline'), dot = wrap.querySelector('.scrubdot');
+  const yF = sparkYFrac(days);
+  let active = -1;
+  function show(i) {
+    if (i === active) return;
+    active = i;
+    const d = days[i], r = wrap.getBoundingClientRect();
+    const px = (i / (days.length - 1)) * r.width;
+    line.style.left = px + 'px';
+    dot.style.left = px + 'px'; dot.style.top = (yF(d.bal) * r.height) + 'px';
+    line.classList.add('on'); dot.classList.add('on');
+    const rows = d.txs.slice().sort((a, b) => Math.abs(toBase(b.amount, b.currency)) - Math.abs(toBase(a.amount, a.currency)));
+    const top = rows.slice(0, 6);
+    info.innerHTML = `
+      <div class="sirow head"><span class="silab">${esc(dayLabel(d.date))}</span>
+        <span class="sival ${d.delta < 0 ? 'neg' : 'pos'}">${d.delta >= 0 ? '+' : '−'}${baseFmt(Math.abs(d.delta))}</span>
+        <span class="sival dim">balance ${baseFmt(d.bal)}</span></div>
+      ${top.map(t => `<div class="sirow"><span class="dot" style="background:${catColor(t.category)}"></span>
+        <span class="silab">${esc(t.desc)}<span class="sub"> · ${esc(t.category)}</span></span>
+        <span class="sival ${t.amount >= 0 ? 'pos' : ''}">${fmtMoney(t.amount, t.currency)}</span></div>`).join('')}
+      ${rows.length > top.length ? `<div class="sirow"><span class="sival dim">+ ${rows.length - top.length} more that day</span></div>` : ''}`;
+  }
+  show(days.length - 1);
+  const pick = (e) => {
+    const r = wrap.getBoundingClientRect();
+    const i = Math.round(((e.clientX - r.left) / r.width) * (days.length - 1));
+    show(Math.max(0, Math.min(days.length - 1, i)));
+  };
+  wrap.addEventListener('pointerdown', (e) => { wrap.setPointerCapture(e.pointerId); pick(e); });
+  wrap.addEventListener('pointermove', pick);
 }
 function donutChart(entries, centerLabel, centerValue) {
   const total = entries.reduce((s, e) => s + e.value, 0) || 1; const R = 52, CIRC = 2 * Math.PI * R; let offset = 0;
@@ -1094,13 +1167,14 @@ function renderOverview() {
   if (restSum > 0) donutEntries.push({ label: 'Everything else', value: restSum, color: CAT_COLORS.Other, fmt: baseFmt(restSum) });
   const months = Object.keys(agg).sort().slice(-6);
   const recurring = detectRecurring(); const recTotal = recurring.reduce((s, r) => s + r.monthly, 0);
+  const days = dailySeries();
 
   el.innerHTML = `
     <div class="card hero">
       <div class="label">Net position · all accounts</div>
       <div class="big num cu" data-v="${net}">${baseFmt(net)}</div>
-      <div class="sub" style="margin-top:4px">across ${Object.keys(byAcct).length} accounts, shown in ${base}</div>
-      ${sparkline()}
+      <div class="sub" style="margin-top:4px">across ${Object.keys(byAcct).length} accounts, shown in ${base} · hover or drag the line</div>
+      ${sparkline(days)}
     </div>
     <div class="grid2 gridrow">
       <div class="card"><div class="label">${monthLabel(mk)} income</div><div class="mid num pos cu" data-v="${cur.income}">${baseFmt(cur.income)}</div></div>
@@ -1110,13 +1184,13 @@ function renderOverview() {
     </div>
     <div class="grid2 gridrow">
       <div class="card"><div class="label">Spending · ${monthLabel(mk)}</div>
-        ${donutEntries.length ? `<div class="donutwrap">${donutChart(donutEntries, monthLabel(mk), baseFmt(cur.expense))}<div class="donutlegend">${donutEntries.map(e => `<div class="row"><span class="lab"><span class="dot" style="background:${e.color}"></span>${esc(e.label)}</span><span class="val num">${e.fmt}</span></div>`).join('')}</div></div>` : '<div class="sub">No spending this month.</div>'}</div>
+        ${donutEntries.length ? `<div class="donutwrap">${donutChart(donutEntries, monthLabel(mk), baseFmt(cur.expense))}<div class="donutlegend">${donutEntries.map(e => `<div class="row"${e.label === 'Everything else' ? '' : ` data-cat="${esc(e.label)}"`}><span class="lab"><span class="dot" style="background:${e.color}"></span>${esc(e.label)}</span><span class="val num">${e.fmt}</span></div>`).join('')}</div></div>` : '<div class="sub">No spending this month.</div>'}</div>
       <div class="card"><div class="label">Cash flow · last ${months.length} months</div>${trendChart(months, agg)}<div class="legend"><span class="li">Income</span><span class="le">Spend</span></div></div>
     </div>
     <div class="card">
       <div class="cardhead"><div class="label">Recurring & subscriptions</div>${recurring.length ? `<span class="sub num">${baseFmt(recTotal)}/mo · ${baseFmt(recTotal * 12)}/yr</span>` : ''}</div>
-      ${recurring.length ? `<div class="reclist">${recurring.slice(0, 8).map(r => `
-        <div class="recrow"><span class="dot" style="background:${catColor(r.cat)}"></span>
+      ${recurring.length ? `<div class="reclist">${recurring.slice(0, 8).map((r, i) => `
+        <div class="recrow" data-i="${i}"><span class="dot" style="background:${catColor(r.cat)}"></span>
           <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly · ${esc(r.cat)}</span></span>
           <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span></div>`).join('')}</div>`
         : '<div class="sub">No recurring charges detected yet. Needs 2+ months of a merchant to spot a pattern.</div>'}
@@ -1124,11 +1198,59 @@ function renderOverview() {
     <div class="card">
       <div class="label">Accounts</div>
       <div class="acctlist">${Object.entries(byAcct).map(([name, a]) => `
-        <div class="acctrow"><span class="avatar" style="background:${acctColor(name)}">${esc(acctInitials(name))}</span>
+        <div class="acctrow" data-acct="${esc(name)}"><span class="avatar" style="background:${acctColor(name)}">${esc(acctInitials(name))}</span>
           <span class="name">${esc(name)}<span class="sub">${a.mixed ? 'multi-currency' : a.cur}</span></span>
           <span class="bal num" title="${a.mixed ? '' : esc(rateTooltip(a.cur))}"><span class="${a.base < 0 ? 'neg' : ''}">${baseFmt(a.base)}</span>${a.mixed || a.cur === base ? '' : `<span class="sub num">${fmtMoney(a.native, a.cur)}</span>`}</span></div>`).join('')}</div>
     </div>`;
   enterCharts('#view-overview');
+  attachSparkScrub(days);
+  $$('#view-overview .acctrow').forEach(row => { row.onclick = () => gotoTransactions({ account: row.dataset.acct }); });
+  $$('#view-overview .recrow').forEach(row => { row.onclick = () => openRecurringDetail(recurring[+row.dataset.i]); });
+  $$('#view-overview .donutlegend .row[data-cat]').forEach(row => { row.onclick = () => gotoTransactions({ category: row.dataset.cat, month: mk }); });
+}
+
+/* Jump to the Transactions view with filters preset - the "open the account" path. */
+function gotoTransactions(f) {
+  $('#fSearch').value = f.search || '';
+  $('#fAccount').value = f.account || '';
+  $('#fCategory').value = f.category || '';
+  $('#fFrom').value = f.month ? f.month + '-01' : '';
+  $('#fTo').value = '';
+  renderTransactions();
+  switchView('transactions');
+  window.scrollTo({ top: 0 });
+}
+
+function openRecurringDetail(r) {
+  if (!r) return;
+  const total = r.items.reduce((s, t) => s + Math.abs(toBase(t.amount, t.currency)), 0);
+  const rows = r.items.slice().reverse();
+  $('#detailBody').innerHTML = `
+    <h2>${esc(r.name)}</h2>
+    <div class="sub">${esc(r.cat)} · seen ${r.count}×, roughly monthly</div>
+    <div class="grid2" style="margin-bottom:16px">
+      <div class="card" style="margin:0"><div class="label">Per month</div><div class="mid num">${baseFmt(r.monthly)}</div></div>
+      <div class="card" style="margin:0"><div class="label">Per year</div><div class="mid num">${baseFmt(r.annual)}</div></div>
+    </div>
+    ${r.hike ? `<div style="margin-bottom:14px"><span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ price rose ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span></div>` : ''}
+    <div class="cardhead"><div class="label">Every charge</div><span class="sub num">${baseFmt(total)} paid in total</span></div>
+    <div class="reclist">${rows.map((t, i) => {
+      const prev = rows[i + 1];
+      const curAmt = Math.abs(toBase(t.amount, t.currency));
+      const prevAmt = prev ? Math.abs(toBase(prev.amount, prev.currency)) : null;
+      const changed = prevAmt !== null && Math.abs(curAmt - prevAmt) / (prevAmt || 1) > 0.005;
+      return `<div class="recrow" style="cursor:default">
+        <span class="name">${esc(dayLabel(t.date))}<span class="sub">${esc(t.account)}</span></span>
+        ${changed ? `<span class="pill" style="background:${curAmt > prevAmt ? 'var(--coral-soft)' : 'var(--accent-soft)'};color:${curAmt > prevAmt ? 'var(--coral)' : 'var(--accent)'}">${curAmt > prevAmt ? '▲' : '▼'} ${baseFmt(Math.abs(curAmt - prevAmt))}</span>` : ''}
+        <span class="num" style="white-space:nowrap">${fmtMoney(t.amount, t.currency)}</span></div>`;
+    }).join('')}</div>
+    <div class="formrow" style="justify-content:flex-end;margin-top:16px">
+      <button class="ghost" id="recSeeAll">See in Transactions</button>
+      <button class="primary" id="recDone">Done</button>
+    </div>`;
+  $('#detailModal').classList.add('open');
+  $('#recDone').onclick = () => $('#detailModal').classList.remove('open');
+  $('#recSeeAll').onclick = () => { $('#detailModal').classList.remove('open'); gotoTransactions({ search: r.name }); };
 }
 
 /* ---------- transactions ---------- */
