@@ -1,7 +1,8 @@
-const CACHE = 'ledger-v9';
+const CACHE = 'ledger-v10';
 const ASSETS = [
   './',
   './index.html',
+  './sync.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -28,6 +29,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  // Never touch cross-origin traffic: the Dropbox API must not go through a
+  // cache-first handler, and letting it fall through here turns an offline
+  // request into a confusing TypeError instead of a clean network error.
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request))
   );

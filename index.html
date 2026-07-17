@@ -377,6 +377,66 @@ nav.tabbar { display: none; }
 <script>
 'use strict';
 
+/* ---------- sync tracking schema ----------
+   Which kv blobs sync, and what the natural key is inside each. Drives the
+   diff-on-write stamping below and the merge engine in sync.js. A kv key absent
+   from this table (e.g. syncMeta itself) is device-local and never tracked. */
+const SYNC_SCHEMA = {
+  settings: { kind: 'map', only: ['base'] },   // theme stays device-local
+  rates:    { kind: 'array', key: 'cur' },
+  budgets:  { kind: 'map' },
+  rules:    { kind: 'map' },
+  mappings: { kind: 'map' },
+  accounts: { kind: 'map' },
+  jars:     { kind: 'array', key: 'id' },
+  catJar:   { kind: 'map' },
+  jarMoves: { kind: 'array', key: 'id' },
+};
+const SYNC_META_KEY = 'syncMeta';
+const TOMB_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+function schemaKeys(key, val) {
+  const sch = SYNC_SCHEMA[key];
+  if (sch.kind === 'map') { const ks = Object.keys(val || {}); return sch.only ? ks.filter(k => sch.only.includes(k)) : ks; }
+  return (val || []).map(it => it[sch.key]).filter(k => k !== undefined);
+}
+function schemaEntry(key, val, nk) {
+  const sch = SYNC_SCHEMA[key];
+  if (sch.kind === 'map') return (val || {})[nk];
+  return (val || []).find(it => it[sch.key] === nk);
+}
+
+/* sync.js loads after this script and may be absent (or fail to load) - a write
+   must never throw just because sync isn't there. */
+function nudgeSync() { if (typeof scheduleSync === 'function') scheduleSync(); }
+
+let _meta = null;
+async function getMeta() {
+  if (_meta) return _meta;
+  _meta = await DB.kvGet(SYNC_META_KEY, null) || { txTomb: {}, kv: {}, lastSync: 0, remoteRev: null, deviceId: null };
+  _meta.txTomb = _meta.txTomb || {}; _meta.kv = _meta.kv || {};
+  if (!_meta.deviceId) { _meta.deviceId = 'd' + Math.random().toString(36).slice(2, 10); await DB.kvSet(SYNC_META_KEY, _meta, false); }
+  return _meta;
+}
+async function saveMeta() { if (_meta) await DB.kvSet(SYNC_META_KEY, _meta, false); }
+
+/* Diff previous vs next and stamp only the sub-keys that actually changed, so
+   two devices editing different budgets/rules/jars both survive the merge. */
+async function trackKvWrite(key, prev, next) {
+  const m = await getMeta();
+  const e = m.kv[key] = m.kv[key] || { ts: {}, tomb: {} };
+  const now = Date.now();
+  const prevKeys = new Set(schemaKeys(key, prev));
+  const nextKeys = new Set(schemaKeys(key, next));
+  for (const nk of nextKeys) {
+    const a = JSON.stringify(schemaEntry(key, prev, nk) ?? null);
+    const b = JSON.stringify(schemaEntry(key, next, nk) ?? null);
+    if (a !== b) { e.ts[nk] = now; delete e.tomb[nk]; }
+  }
+  for (const nk of prevKeys) if (!nextKeys.has(nk)) { e.tomb[nk] = now; delete e.ts[nk]; }
+  await saveMeta();
+}
+
 /* ---------- storage: IndexedDB with localStorage fallback ---------- */
 const DB = (() => {
   let db = null;
@@ -397,51 +457,82 @@ const DB = (() => {
   }
   function store(name, mode) { return db.transaction(name, mode).objectStore(name); }
   function prom(req) { return new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); }); }
+
+  async function rawKvGet(key, fallback) {
+    if (useLS) { const v = localStorage.getItem('ledger.kv.' + key); return v === null ? fallback : JSON.parse(v); }
+    const v = await prom(store('kv', 'readonly').get(key));
+    return v === undefined ? fallback : v;
+  }
+  async function rawKvSet(key, val) {
+    if (useLS) { localStorage.setItem('ledger.kv.' + key, JSON.stringify(val)); return; }
+    return prom(store('kv', 'readwrite').put(val, key));
+  }
+  async function rawPutTx(items) {
+    if (useLS) {
+      const all = JSON.parse(localStorage.getItem('ledger.tx') || '[]');
+      const map = new Map(all.map(t => [t.id, t]));
+      items.forEach(t => map.set(t.id, t));
+      localStorage.setItem('ledger.tx', JSON.stringify([...map.values()]));
+      return;
+    }
+    return new Promise((res, rej) => {
+      const txn = db.transaction('tx', 'readwrite'); const s = txn.objectStore('tx');
+      items.forEach(t => s.put(t));
+      txn.oncomplete = () => res(); txn.onerror = () => rej(txn.error);
+    });
+  }
+  async function rawDeleteTx(ids) {
+    if (useLS) {
+      const set = new Set(ids);
+      const all = JSON.parse(localStorage.getItem('ledger.tx') || '[]').filter(t => !set.has(t.id));
+      localStorage.setItem('ledger.tx', JSON.stringify(all));
+      return;
+    }
+    return new Promise((res, rej) => {
+      const txn = db.transaction('tx', 'readwrite'); const s = txn.objectStore('tx');
+      ids.forEach(id => s.delete(id));
+      txn.oncomplete = () => res(); txn.onerror = () => rej(txn.error);
+    });
+  }
+
   return {
     open,
     async getAllTx() {
       if (useLS) return JSON.parse(localStorage.getItem('ledger.tx') || '[]');
       return prom(store('tx', 'readonly').getAll());
     },
-    async putTx(items) {
-      if (useLS) {
-        const all = JSON.parse(localStorage.getItem('ledger.tx') || '[]');
-        const map = new Map(all.map(t => [t.id, t]));
-        items.forEach(t => map.set(t.id, t));
-        localStorage.setItem('ledger.tx', JSON.stringify([...map.values()]));
-        return;
+    /* stamp=false when the merge engine writes records that already carry a
+       remote updatedAt we must not clobber. */
+    async putTx(items, stamp = true) {
+      if (stamp) { const now = Date.now(); items.forEach(t => { t.updatedAt = now; }); }
+      await rawPutTx(items);
+      if (stamp) nudgeSync();
+    },
+    /* Data first, tombstone second. A crash between the two resurrects a row on
+       the next sync, which is recoverable; the reverse order would delete the
+       other device's row with no record of why. */
+    async deleteTx(ids, tomb = true) {
+      await rawDeleteTx(ids);
+      if (tomb) {
+        const m = await getMeta(); const now = Date.now();
+        ids.forEach(id => { m.txTomb[id] = now; });
+        await saveMeta(); nudgeSync();
       }
-      return new Promise((res, rej) => {
-        const txn = db.transaction('tx', 'readwrite'); const s = txn.objectStore('tx');
-        items.forEach(t => s.put(t));
-        txn.oncomplete = () => res(); txn.onerror = () => rej(txn.error);
-      });
     },
-    async deleteTx(ids) {
-      if (useLS) {
-        const set = new Set(ids);
-        const all = JSON.parse(localStorage.getItem('ledger.tx') || '[]').filter(t => !set.has(t.id));
-        localStorage.setItem('ledger.tx', JSON.stringify(all));
-        return;
+    kvGet: rawKvGet,
+    async kvSet(key, val, track = true) {
+      if (track && SYNC_SCHEMA[key]) {
+        const prev = await rawKvGet(key, Array.isArray(val) ? [] : {});
+        await rawKvSet(key, val);
+        await trackKvWrite(key, prev, val);
+        return nudgeSync();
       }
-      return new Promise((res, rej) => {
-        const txn = db.transaction('tx', 'readwrite'); const s = txn.objectStore('tx');
-        ids.forEach(id => s.delete(id));
-        txn.oncomplete = () => res(); txn.onerror = () => rej(txn.error);
-      });
-    },
-    async kvGet(key, fallback) {
-      if (useLS) { const v = localStorage.getItem('ledger.kv.' + key); return v === null ? fallback : JSON.parse(v); }
-      const v = await prom(store('kv', 'readonly').get(key));
-      return v === undefined ? fallback : v;
-    },
-    async kvSet(key, val) {
-      if (useLS) { localStorage.setItem('ledger.kv.' + key, JSON.stringify(val)); return; }
-      return prom(store('kv', 'readwrite').put(val, key));
+      return rawKvSet(key, val);
     },
     async putReceipt(id, blob) { if (useLS) return; return prom(store('receipts', 'readwrite').put(blob, id)); },
     async getReceipt(id) { if (useLS) return null; return prom(store('receipts', 'readonly').get(id)); },
     async wipe() {
+      _meta = null;
       if (useLS) { Object.keys(localStorage).filter(k => k.startsWith('ledger.')).forEach(k => localStorage.removeItem(k)); return; }
       await Promise.all(['tx', 'kv', 'receipts'].map(s => prom(store(s, 'readwrite').clear())));
     },
@@ -548,7 +639,14 @@ function categorize(desc) {
 }
 async function learnRule(desc, category) { S.rules[merchantKey(desc)] = category; await DB.kvSet('rules', S.rules); }
 function jarById(id) { return S.jars.find(j => j.id === id); }
-function txJar(t) { return t.jar || S.catJar[t.category] || null; }
+/* Resolve a dangling jar id at read time rather than trying to repair it at merge
+   time: one device can delete a jar while the other assigns a transaction to it,
+   and a merge that wrote a fix would need a fresh timestamp and break convergence. */
+function txJar(t) {
+  if (t.jar && jarById(t.jar)) return t.jar;
+  const c = S.catJar[t.category];
+  return c && jarById(c) ? c : null;
+}
 function isTransfer(t) { return !!t.transfer; }
 
 /* ---------- date/amount parsing ---------- */
@@ -1158,9 +1256,13 @@ function showSettings() {
     <div class="tablewrap"><table class="ratestable"><tr><th>Currency</th><th>EUR per 1</th><th>Date set</th></tr>
       ${curs.map(c => { const r = S.rates.find(x => x.cur === c) || { cur: c, eurPer: '', date: '' }; return `<tr><td>${c}</td><td><input type="number" step="0.0001" min="0" data-rcur="${c}" class="rateinp num" value="${r.eurPer}"></td><td class="sub num">${r.date || '-'}</td></tr>`; }).join('')}
     </table></div>
+    <h2 style="margin-top:18px">Sync</h2>
+    <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
+    <div id="syncPanel"></div>
     <h2 style="margin-top:18px">Data</h2>
     <div class="formrow" style="margin-top:10px"><button class="ghost" id="sSample">Load sample data</button><button class="ghost" id="sExport">Export JSON</button><button class="ghost danger" id="sWipe">Wipe all data</button></div>
     <div class="formrow" style="justify-content:flex-end; margin-top:16px"><button class="primary" id="sClose">Done</button></div>`;
+  renderSyncPanel();
   $('#settingsModal').classList.add('open');
   $('#sClose').onclick = () => $('#settingsModal').classList.remove('open');
   $('#sBase').onchange = async () => { S.settings.base = $('#sBase').value; await DB.kvSet('settings', S.settings); renderAll(); };
@@ -1178,6 +1280,60 @@ function showSettings() {
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
   };
 }
+
+/* ---------- sync settings panel ---------- */
+const SYNC_LABEL = {
+  off: 'Not connected', idle: 'Connected', syncing: 'Syncing…', ok: 'Synced',
+  offline: 'Offline, will retry', error: 'Sync problem', 'needs-pass': 'Passphrase needed', 'needs-auth': 'Reconnect Dropbox',
+};
+function relTime(ms) {
+  if (!ms) return 'never';
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+async function renderSyncPanel() {
+  const el = $('#syncPanel'); if (!el) return;
+  if (typeof getSyncCfg !== 'function') { el.textContent = 'Sync module not loaded.'; return; }
+  const cfg = await getSyncCfg();
+  const st = getStatus(); const m = await getMeta();
+  const connected = cfg.enabled && cfg.refreshToken;
+  el.innerHTML = `
+    <div class="formrow" style="margin-top:10px"><label>Status</label>
+      <span class="pill ${st.state === 'error' || st.state === 'needs-auth' ? 'grey' : ''}">${esc(SYNC_LABEL[st.state] || st.state)}</span>
+      ${connected ? `<span class="sub num">last sync ${esc(relTime(m.lastSync))}</span>` : ''}
+      ${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</div>
+    ${!connected ? `
+      <div class="formrow"><label>Dropbox app key</label><input id="syAppKey" value="${esc(cfg.appKey || '')}" placeholder="from dropbox.com/developers"></div>
+      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect Dropbox</button></div>`
+    : `
+      <div class="formrow"><label>Passphrase</label><input type="password" id="syPass" placeholder="${hasPassphrase() ? 'set on this device' : 'same on both devices'}">
+        <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember</label>
+        <button class="ghost sm" id="sySetPass">Set</button></div>
+      <div class="sub">If you both forget this, the Dropbox copy is unrecoverable. Keep an Export JSON somewhere safe.</div>
+      <div class="formrow" style="justify-content:flex-end; margin-top:10px">
+        <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
+        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
+
+  if (!connected) {
+    $('#syConnect').onclick = async () => { const c = await getSyncCfg(); c.appKey = $('#syAppKey').value.trim(); await saveSyncCfg(); startDropboxAuth(); };
+  } else {
+    $('#sySetPass').onclick = async () => {
+      const p = $('#syPass').value;
+      if (p.length < 8) { toast('Use at least 8 characters'); return; }
+      await setPassphrase(p, $('#syRemember').checked);
+      toast('Passphrase set'); renderSyncPanel(); syncNow();
+    };
+    $('#sySync').onclick = () => syncNow();
+    $('#syDisconnect').onclick = async () => {
+      if (!confirm('Disconnect this device from Dropbox? Local data stays; the other device is untouched.')) return;
+      await disconnectSync(); renderSyncPanel();
+    };
+  }
+}
+document.addEventListener('syncstatus', () => { if ($('#settingsModal').classList.contains('open')) renderSyncPanel(); });
 
 /* ---------- sample data ---------- */
 function loadSampleData() {
@@ -1223,10 +1379,14 @@ function buildSampleData() {
 }
 
 /* ---------- boot ---------- */
+/* Seeded defaults are written UNTRACKED on purpose. A tracked write stamps them
+   with Date.now(), so a freshly installed second device would out-timestamp the
+   other device's long-customized jars and silently reset them on first sync.
+   Untracked = no timestamp = effectively 0 = any real remote value always wins. */
 async function initDefaults() {
-  if (!S.rates.length) { S.rates = [{ cur: 'USD', eurPer: 0.92, date: todayISO() }, { cur: 'CAD', eurPer: 0.67, date: todayISO() }]; await DB.kvSet('rates', S.rates); }
-  if (!S.jars.length) { S.jars = structuredClone(DEFAULT_JARS); await DB.kvSet('jars', S.jars); }
-  if (!Object.keys(S.catJar).length) { S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('catJar', S.catJar); }
+  if (!S.rates.length) { S.rates = [{ cur: 'USD', eurPer: 0.92, date: todayISO() }, { cur: 'CAD', eurPer: 0.67, date: todayISO() }]; await DB.kvSet('rates', S.rates, false); }
+  if (!S.jars.length) { S.jars = structuredClone(DEFAULT_JARS); await DB.kvSet('jars', S.jars, false); }
+  if (!Object.keys(S.catJar).length) { S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('catJar', S.catJar, false); }
 }
 async function boot() {
   await DB.open();
@@ -1238,6 +1398,7 @@ async function boot() {
   await initDefaults();
   document.documentElement.dataset.theme = S.settings.theme || 'light';
   renderAll();
+  if (typeof initSync === 'function') initSync();   // never block first paint on network
 }
 
 /* events */
@@ -1255,7 +1416,9 @@ $('#pickImgBtn').onclick = () => $('#imgInput').click();
 $('#cameraBtn').onclick = () => $('#cameraInput').click();
 ['csvInput', 'imgInput', 'cameraInput'].forEach(id => { $('#' + id).onchange = (e) => { handleFiles([...e.target.files]); e.target.value = ''; }; });
 document.addEventListener('click', (e) => { const tr = e.target.closest('#txTable tbody tr'); if (tr && !e.target.closest('.catselect,.rowchk,.jartag,.selcol')) { const t = S.tx.find(x => x.id === tr.dataset.id); if (t) openTxModal(t); } });
-$$('.modal-backdrop').forEach(m => m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('open'); }));
+$$('.modal-backdrop').forEach(m => m.addEventListener('click', (e) => {
+  if (e.target === m) { m.classList.remove('open'); if (typeof flushDeferredRender === 'function') flushDeferredRender(); }
+}));
 const dz = $('#dropzone');
 ['dragover', 'dragenter'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('drag'); }));
 ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('drag'); }));
@@ -1265,6 +1428,9 @@ $('#budgetMonth').addEventListener('input', renderBudgets);
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW registration failed', e));
 const tesScript = document.createElement('script'); tesScript.src = './vendor/tesseract.min.js'; document.head.appendChild(tesScript);
+</script>
+<script src="./sync.js"></script>
+<script>
 boot();
 </script>
 </body>
