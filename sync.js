@@ -341,8 +341,17 @@ async function initSync() {
     try { await finishDropboxAuth(params.get('code')); history.replaceState({}, '', redirectUri()); toast('Dropbox connected'); }
     catch (e) { toast(e.message); history.replaceState({}, '', redirectUri()); }
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleSync(500); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      clearTimeout(syncTimer);
+      if (syncCfg?.enabled && syncCfg.refreshToken && passphrase) syncNow();
+    } else scheduleSync(500);
+  });
   window.addEventListener('online', () => scheduleSync(500));
+  window.addEventListener('pagehide', () => {
+    clearTimeout(syncTimer);
+    if (syncCfg?.enabled && syncCfg.refreshToken && passphrase) syncNow();
+  });
   if (syncCfg.enabled && syncCfg.refreshToken) {
     setStatus(passphrase ? 'idle' : 'needs-pass', passphrase ? '' : 'Passphrase needed');
     if (passphrase) syncNow();

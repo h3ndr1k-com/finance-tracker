@@ -72,6 +72,7 @@
 }
 * { box-sizing: border-box; margin: 0; }
 html { -webkit-text-size-adjust: 100%; }
+button, .iconbtn, nav button, .linkbtn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 body {
   background: var(--bg); color: var(--ink);
   font: 15px/1.5 var(--body);
@@ -349,6 +350,13 @@ progress { width: 100%; accent-color: var(--accent); }
 
 nav.tabbar { display: none; }
 @media (max-width: 720px) {
+  /* Re-running fadeUp on every tab switch feels glitchy on phones */
+  .view.active > * { animation: none; }
+  .modal { max-height: calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
+  .dropzone { flex-direction: column; align-items: stretch; gap: 10px; }
+  .dropzone .actions { justify-content: stretch; }
+  .dropzone .actions button { flex: 1; min-width: 0; }
+  .filters input, .filters select { min-width: 0; width: 100%; }
   nav.topnav { display: none; }
   nav.tabbar {
     display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
@@ -589,10 +597,18 @@ const DB = (() => {
     },
     async putReceipt(id, blob) { if (useLS) return; return prom(store('receipts', 'readwrite').put(blob, id)); },
     async getReceipt(id) { if (useLS) return null; return prom(store('receipts', 'readonly').get(id)); },
+    /* Wipe clears kv, and kv is where tombstones live. Without re-recording them
+       after the clear, a wipe is invisible to the merge engine and the next sync
+       pulls every wiped row straight back off the remote. */
     async wipe() {
+      const ids = (await this.getAllTx()).map(t => t.id);
       _meta = null;
-      if (useLS) { Object.keys(localStorage).filter(k => k.startsWith('ledger.')).forEach(k => localStorage.removeItem(k)); return; }
-      await Promise.all(['tx', 'kv', 'receipts'].map(s => prom(store(s, 'readwrite').clear())));
+      if (useLS) { Object.keys(localStorage).filter(k => k.startsWith('ledger.')).forEach(k => localStorage.removeItem(k)); }
+      else await Promise.all(['tx', 'kv', 'receipts'].map(s => prom(store(s, 'readwrite').clear())));
+      if (!ids.length) return;
+      const m = await getMeta(); const now = Date.now();
+      ids.forEach(id => { m.txTomb[id] = now; });
+      await saveMeta(); nudgeSync();
     },
   };
 })();
@@ -970,7 +986,8 @@ function openTxModal(existing) {
   if (existing) $('#eDelete').onclick = async () => { await deleteTransactions([existing.id]); modal.classList.remove('open'); toast('Transaction deleted'); };
   $('#eSave').onclick = async () => {
     const amt = parseFloat($('#eAmount').value); const date = $('#eDate').value; const desc = $('#eDesc').value.trim(); const account = $('#eAccount').value.trim();
-    if (isNaN(amt) || !date || !desc || !account) { toast('Date, description, amount and account required'); return; }
+    const missing = [!date && 'date', !desc && 'description', isNaN(amt) && 'amount', !account && 'account'].filter(Boolean);
+    if (missing.length) { toast('Missing: ' + missing.join(', ')); return; }
     const flowv = $('#eFlow').value;
     const signed = flowv === 'in' ? Math.abs(amt) : -Math.abs(amt);
     const nt = { id: existing ? existing.id : uid(), date, desc, amount: signed, currency: $('#eCur').value, account, source: existing ? existing.source : 'manual', category: $('#eCat').value, jar: $('#eJar').value || null, transfer: flowv === 'transfer', hasThumb: existing ? existing.hasThumb : false };
@@ -1153,7 +1170,7 @@ function renderOverview() {
       Import a CSV statement, scan a receipt, or add a transaction above. Or try it with sample data.
       <div class="actions"><button class="primary" id="loadSampleBtn">Load sample data</button></div>
       <div class="sub" style="margin-top:14px">Everything stays on this device. No cloud, no account.</div></div>`;
-    $('#loadSampleBtn').onclick = loadSampleData; return;
+    $('#loadSampleBtn').onclick = () => { if (!confirm('Load demo transactions? They sync to every connected device.')) return; loadSampleData(); }; return;
   }
   const base = S.settings.base; const byAcct = {};
   for (const t of S.tx) { byAcct[t.account] = byAcct[t.account] || { native: 0, cur: t.currency, base: 0, mixed: false }; const a = byAcct[t.account]; if (t.currency !== a.cur) a.mixed = true; a.native += t.amount; a.base += toBase(t.amount, t.currency); }
@@ -1421,14 +1438,15 @@ function showSettings() {
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
     <div id="syncPanel"></div>
     <h2 style="margin-top:18px">Data</h2>
-    <div class="formrow" style="margin-top:10px"><button class="ghost" id="sSample">Load sample data</button><button class="ghost" id="sExport">Export JSON</button><button class="ghost danger" id="sWipe">Wipe all data</button></div>
+    <div class="formrow" style="margin-top:10px"><button class="ghost" id="sSample">Load sample data</button><button class="ghost" id="sRemoveSample">Remove sample data</button><button class="ghost" id="sExport">Export JSON</button><button class="ghost danger" id="sWipe">Wipe all data</button></div>
     <div class="formrow" style="justify-content:flex-end; margin-top:16px"><button class="primary" id="sClose">Done</button></div>`;
   renderSyncPanel();
   $('#settingsModal').classList.add('open');
   $('#sClose').onclick = () => $('#settingsModal').classList.remove('open');
   $('#sBase').onchange = async () => { S.settings.base = $('#sBase').value; await DB.kvSet('settings', S.settings); renderAll(); };
   $$('.rateinp').forEach(inp => inp.onchange = async () => { const cur = inp.dataset.rcur, v = parseFloat(inp.value); S.rates = S.rates.filter(r => r.cur !== cur); if (!isNaN(v) && v > 0) S.rates.push({ cur, eurPer: v, date: todayISO() }); await DB.kvSet('rates', S.rates); renderAll(); showSettings(); });
-  $('#sSample').onclick = () => { $('#settingsModal').classList.remove('open'); loadSampleData(); };
+  $('#sSample').onclick = () => { if (!confirm('Load demo transactions (Northwind Studio, Loblaws, etc.)? They sync to every connected device.')) return; $('#settingsModal').classList.remove('open'); loadSampleData(); };
+  $('#sRemoveSample').onclick = async () => { await removeSampleData(); renderSyncPanel(); };
   $('#sExport').onclick = async () => {
     const payload = { exportedAt: new Date().toISOString(), settings: S.settings, rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, transactions: S.tx };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1497,6 +1515,13 @@ async function renderSyncPanel() {
 document.addEventListener('syncstatus', () => { if ($('#settingsModal').classList.contains('open')) renderSyncPanel(); });
 
 /* ---------- sample data ---------- */
+async function removeSampleData() {
+  const ids = S.tx.filter(t => t.source === 'sample').map(t => t.id);
+  if (!ids.length) { toast('No sample data found'); return; }
+  if (!confirm(`Remove ${ids.length} sample transaction(s)? Real data is kept. Sync after to update other devices.`)) return;
+  await deleteTransactions(ids);
+  toast(`Removed ${ids.length} sample transactions — tap Sync now on each device`);
+}
 function loadSampleData() {
   const rows = buildSampleData();
   const added = [];
@@ -1592,6 +1617,7 @@ dz.addEventListener('drop', (e) => handleFiles([...e.dataTransfer.files]));
 $('#budgetMonth').addEventListener('input', renderBudgets);
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW registration failed', e));
+if (navigator.storage?.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).then(p => console.log('storage persisted:', p));
 const tesScript = document.createElement('script'); tesScript.src = './vendor/tesseract.min.js'; document.head.appendChild(tesScript);
 </script>
 <script src="./sync.js"></script>
