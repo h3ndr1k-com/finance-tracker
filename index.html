@@ -348,34 +348,76 @@ progress { width: 100%; accent-color: var(--accent); }
 @keyframes herodrift { from { background-position: 0% 0%, 100% 100%, 0 0; } to { background-position: 100% 50%, 0% 50%, 0 0; } }
 .pctwarn { color: var(--coral); font-size: 13px; margin-top: 4px; }
 
-nav.tabbar { display: none; }
-@media (max-width: 720px) {
-  /* Re-running fadeUp on every tab switch feels glitchy on phones */
-  .view.active > * { animation: none; }
-  .modal { max-height: calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
-  .dropzone { flex-direction: column; align-items: stretch; gap: 10px; }
-  .dropzone .actions { justify-content: stretch; }
-  .dropzone .actions button { flex: 1; min-width: 0; }
-  .filters input, .filters select { min-width: 0; width: 100%; }
-  nav.topnav { display: none; }
+/* Mobile layout by default */
+nav.topnav { display: none; }
+nav.tabbar {
+  display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid var(--hairline);
+  padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
+  justify-content: space-around;
+}
+nav.tabbar button {
+  background: none; border: none; color: var(--muted); font: inherit; font-size: 10px; font-weight: 600;
+  display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; padding: 4px 10px; border-radius: 12px;
+}
+nav.tabbar button svg { width: 21px; height: 21px; stroke: currentColor; fill: none; }
+nav.tabbar button.active { color: var(--accent); }
+
+.view.active > * { animation: none; }
+.modal { max-height: calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
+.dropzone { flex-direction: column; align-items: stretch; gap: 10px; }
+.dropzone .actions { justify-content: stretch; }
+.dropzone .actions button { flex: 1; min-width: 0; }
+.filters input, .filters select { min-width: 0; width: 100%; }
+
+/* Centered desktop app shell */
+@media (min-width: 480px) {
+  body {
+    background: radial-gradient(ellipse 80% 90% at 50% -20%, color-mix(in srgb, var(--accent-soft) 40%, transparent), var(--bg) 70%) no-repeat;
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  #app-shell {
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: var(--bg);
+    border-left: 1px solid var(--hairline);
+    border-right: 1px solid var(--hairline);
+    box-shadow: var(--shadow);
+    position: relative;
+    padding-bottom: 90px;
+  }
   nav.tabbar {
-    display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
-    background: color-mix(in srgb, var(--card) 92%, transparent);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border-top: 1px solid var(--hairline);
-    padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
-    justify-content: space-around;
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
   }
-  nav.tabbar button {
-    background: none; border: none; color: var(--muted); font: inherit; font-size: 10px; font-weight: 600;
-    display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; padding: 4px 10px; border-radius: 12px;
+  .modal-backdrop {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
   }
-  nav.tabbar button svg { width: 21px; height: 21px; stroke: currentColor; fill: none; }
-  nav.tabbar button.active { color: var(--accent); }
+  .toast {
+    position: fixed;
+    bottom: 88px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 </style>
 </head>
 <body>
+<div id="app-shell">
 
 <header>
   <h1>Ledger</h1>
@@ -384,6 +426,7 @@ nav.tabbar { display: none; }
     <button data-view="transactions">Transactions</button>
     <button data-view="jars">Jars</button>
     <button data-view="budgets">Budgets</button>
+    <button data-view="subscriptions">Subscriptions</button>
   </nav>
   <button class="iconbtn" id="themeBtn" title="Toggle theme">◐</button>
   <button class="iconbtn" id="settingsBtn" title="Settings">⚙</button>
@@ -423,6 +466,24 @@ nav.tabbar { display: none; }
     </div>
     <div class="card" id="budgetList"></div>
   </section>
+  <section class="view" id="view-subscriptions">
+    <div class="card hero" style="padding-bottom: 24px;">
+      <div class="label">Total subscriptions</div>
+      <div class="big num" id="subTotalAmt">$0.00</div>
+      <div class="sub" style="margin-top: 4px;" id="subTotalBreakdown">no active subscriptions</div>
+      <div style="margin-top: 16px;">
+        <button class="primary" id="addSubBtn">+ Add subscription</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="cardhead"><div class="label">My subscriptions</div></div>
+      <div class="reclist" id="mySubsList"></div>
+    </div>
+    <div class="card">
+      <div class="cardhead"><div class="label">Auto-detected bills (from activity)</div></div>
+      <div class="reclist" id="detectedSubsList"></div>
+    </div>
+  </section>
 </main>
 
 <nav class="tabbar">
@@ -430,6 +491,7 @@ nav.tabbar { display: none; }
   <button data-view="transactions"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>Activity</button>
   <button data-view="jars"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><path d="M6 8h12l-1 12H7L6 8zM9 8V5a3 3 0 0 1 6 0v3"/></svg>Jars</button>
   <button data-view="budgets"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6 4"/></svg>Budgets</button>
+  <button data-view="subscriptions"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M16 2v4M8 2v4M3 10h18"/></svg>Subs</button>
 </nav>
 
 <div class="modal-backdrop" id="mappingModal"><div class="modal" id="mappingBody"></div></div>
@@ -457,6 +519,7 @@ const SYNC_SCHEMA = {
   jars:     { kind: 'array', key: 'id' },
   catJar:   { kind: 'map' },
   jarMoves: { kind: 'array', key: 'id' },
+  subscriptions: { kind: 'array', key: 'id' },
 };
 const SYNC_META_KEY = 'syncMeta';
 const TOMB_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -619,6 +682,7 @@ const S = {
   settings: { base: 'CAD', theme: 'dark' },
   rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {},
   jars: [], catJar: {}, jarMoves: [],
+  subscriptions: [],
   view: 'overview',
 };
 
@@ -1002,6 +1066,132 @@ async function deleteTransactions(ids) {
   S.tx = S.tx.filter(t => !set.has(t.id)); ids.forEach(id => S.txIds.delete(id)); selected.clear(); renderAll();
 }
 
+/* ---------- subscriptions add / edit / delete ---------- */
+function openSubscriptionModal(existing) {
+  const modal = $('#editModal'), body = $('#editBody');
+  const sub = existing || { name: '', amount: null, currency: S.settings.base, period: 'monthly', date: todayISO(), category: 'Subscriptions', account: '' };
+  
+  body.innerHTML = `
+    <h2>${existing ? 'Edit subscription' : 'Add subscription'}</h2>
+    <div class="formrow"><label>Name</label><input id="sName" value="${esc(sub.name)}" placeholder="e.g. Netflix"></div>
+    <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="sAmount" value="${sub.amount != null ? sub.amount : ''}" placeholder="0.00"><select id="sCur" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === sub.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Period</label><select id="sPeriod"><option value="monthly" ${sub.period==='monthly'?'selected':''}>Monthly</option><option value="yearly" ${sub.period==='yearly'?'selected':''}>Yearly</option><option value="weekly" ${sub.period==='weekly'?'selected':''}>Weekly</option></select></div>
+    <div class="formrow"><label>Next Renewal</label><input type="date" id="sDate" value="${sub.date}"></div>
+    <div class="formrow"><label>Account</label><input id="sAccount" value="${esc(sub.account)}" list="sAcctList" placeholder="e.g. Amex"><datalist id="sAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
+    <div class="formrow"><label>Category</label><select id="sCat">${CATEGORIES.map(c => `<option ${c === sub.category ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow" style="justify-content:space-between; margin-top:16px">
+      <span>${existing ? `<button class="ghost danger" id="sDelete">Delete</button>` : ''}</span>
+      <span><button class="ghost" id="sCancel">Cancel</button> <button class="primary" id="sSave">Save</button></span>
+    </div>`;
+  modal.classList.add('open');
+  $('#sCancel').onclick = () => modal.classList.remove('open');
+  if (existing) {
+    $('#sDelete').onclick = async () => {
+      if (!confirm(`Delete subscription "${sub.name}"?`)) return;
+      S.subscriptions = S.subscriptions.filter(x => x.id !== existing.id);
+      await DB.kvSet('subscriptions', S.subscriptions);
+      modal.classList.remove('open');
+      toast('Subscription deleted');
+      renderAll();
+    };
+  }
+  $('#sSave').onclick = async () => {
+    const name = $('#sName').value.trim();
+    const amt = parseFloat($('#sAmount').value);
+    const date = $('#sDate').value;
+    const account = $('#sAccount').value.trim();
+    const period = $('#sPeriod').value;
+    const currency = $('#sCur').value;
+    const category = $('#sCat').value;
+    
+    const missing = [!name && 'name', isNaN(amt) && 'amount', !date && 'next renewal date', !account && 'account'].filter(Boolean);
+    if (missing.length) { toast('Missing: ' + missing.join(', ')); return; }
+    
+    const ns = { id: existing ? existing.id : uid(), name, amount: amt, currency, period, date, category, account, source: existing ? existing.source : 'manual' };
+    if (existing) {
+      const idx = S.subscriptions.findIndex(x => x.id === existing.id);
+      if (idx >= 0) S.subscriptions[idx] = ns;
+    } else {
+      S.subscriptions.push(ns);
+    }
+    await DB.kvSet('subscriptions', S.subscriptions);
+    if (!(account in S.accounts)) { S.accounts[account] = { currency }; await DB.kvSet('accounts', S.accounts); }
+    modal.classList.remove('open');
+    toast(existing ? 'Saved' : 'Subscription added');
+    renderAll();
+  };
+}
+
+function renderSubscriptions() {
+  const mySubsEl = $('#mySubsList');
+  const detSubsEl = $('#detectedSubsList');
+  if (!mySubsEl || !detSubsEl) return;
+  
+  // Calculate manual totals
+  let manualMonthly = 0;
+  S.subscriptions.forEach(s => {
+    const baseAmt = toBase(s.amount, s.currency);
+    if (s.period === 'monthly') manualMonthly += baseAmt;
+    else if (s.period === 'yearly') manualMonthly += baseAmt / 12;
+    else if (s.period === 'weekly') manualMonthly += baseAmt * 4.33;
+  });
+  
+  // Calculate auto-detected totals
+  const recurring = detectRecurring();
+  const detMonthly = recurring.reduce((s, r) => s + r.monthly, 0);
+  
+  const totalMonthly = manualMonthly + detMonthly;
+  
+  $('#subTotalAmt').textContent = baseFmt(totalMonthly) + '/mo';
+  $('#subTotalBreakdown').textContent = `${baseFmt(manualMonthly)} manual · ${baseFmt(detMonthly)} auto-detected (annual total: ${baseFmt(totalMonthly * 12)})`;
+  
+  // Render manual list
+  if (!S.subscriptions.length) {
+    mySubsEl.innerHTML = `<div class="sub" style="padding: 10px 0;">No manual subscriptions added yet. Click "+ Add subscription" to add Netflix, Spotify, gym membership, etc.</div>`;
+  } else {
+    mySubsEl.innerHTML = S.subscriptions.map((s, i) => {
+      let freqSuffix = s.period === 'monthly' ? '/mo' : (s.period === 'yearly' ? '/yr' : '/wk');
+      const baseAmt = toBase(s.amount, s.currency);
+      let monthlyEquivalent = baseAmt;
+      if (s.period === 'yearly') monthlyEquivalent = baseAmt / 12;
+      else if (s.period === 'weekly') monthlyEquivalent = baseAmt * 4.33;
+      
+      return `
+        <div class="recrow manual-sub-row" data-id="${s.id}">
+          <span class="dot" style="background:${catColor(s.category)}"></span>
+          <span class="name">${esc(s.name)}<span class="sub">${esc(s.account)} · renews ${dayLabel(s.date)}</span></span>
+          <span class="num" style="text-align:right;white-space:nowrap">
+            ${fmtMoney(s.amount, s.currency)}${freqSuffix}
+            ${s.currency !== S.settings.base ? `<span class="sub num">${baseFmt(monthlyEquivalent)}/mo equivalent</span>` : ''}
+          </span>
+        </div>`;
+    }).join('');
+    
+    $$('.manual-sub-row').forEach(row => {
+      row.onclick = () => {
+        const sub = S.subscriptions.find(x => x.id === row.dataset.id);
+        if (sub) openSubscriptionModal(sub);
+      };
+    });
+  }
+  
+  // Render auto-detected list
+  if (!recurring.length) {
+    detSubsEl.innerHTML = `<div class="sub" style="padding: 10px 0;">No recurring bills detected in transactions. Needs 2+ months of a merchant to auto-spot a pattern.</div>`;
+  } else {
+    detSubsEl.innerHTML = recurring.map((r, i) => `
+      <div class="recrow det-sub-row" data-i="${i}">
+        <span class="dot" style="background:${catColor(r.cat)}"></span>
+        <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly · ${esc(r.cat)}</span></span>
+        <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span>
+      </div>`).join('');
+      
+    $$('.det-sub-row').forEach(row => {
+      row.onclick = () => openRecurringDetail(recurring[+row.dataset.i]);
+    });
+  }
+}
+
 /* ---------- aggregation ---------- */
 function monthAgg() {
   const agg = {};
@@ -1140,7 +1330,7 @@ function trendChart(months, agg) {
 }
 
 /* ---------- rendering ---------- */
-function renderAll() { renderOverview(); renderTransactions(); renderJars(); renderBudgets(); }
+function renderAll() { renderOverview(); renderTransactions(); renderJars(); renderBudgets(); renderSubscriptions(); }
 function baseFmt(v, opts) { return fmtMoney(v, S.settings.base, opts); }
 
 const MOTION_OK = matchMedia('(prefers-reduced-motion: no-preference)').matches;
@@ -1205,7 +1395,7 @@ function renderOverview() {
       <div class="card"><div class="label">Cash flow · last ${months.length} months</div>${trendChart(months, agg)}<div class="legend"><span class="li">Income</span><span class="le">Spend</span></div></div>
     </div>
     <div class="card">
-      <div class="cardhead"><div class="label">Recurring & subscriptions</div>${recurring.length ? `<span class="sub num">${baseFmt(recTotal)}/mo · ${baseFmt(recTotal * 12)}/yr</span>` : ''}</div>
+      <div class="cardhead"><div class="label">Recurring & subscriptions</div><button class="linkbtn" onclick="switchView('subscriptions'); window.scrollTo({ top: 0 });">Manage</button></div>
       ${recurring.length ? `<div class="reclist">${recurring.slice(0, 8).map((r, i) => `
         <div class="recrow" data-i="${i}"><span class="dot" style="background:${catColor(r.cat)}"></span>
           <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly · ${esc(r.cat)}</span></span>
@@ -1453,8 +1643,8 @@ function showSettings() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ledger-export-${todayISO()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
   $('#sWipe').onclick = async () => {
-    if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets? This cannot be undone.')) return;
-    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], settings: { base: S.settings.base, theme: S.settings.theme } });
+    if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, subscriptions? This cannot be undone.')) return;
+    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], subscriptions: [], settings: { base: S.settings.base, theme: S.settings.theme } });
     S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar);
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
   };
@@ -1517,10 +1707,15 @@ document.addEventListener('syncstatus', () => { if ($('#settingsModal').classLis
 /* ---------- sample data ---------- */
 async function removeSampleData() {
   const ids = S.tx.filter(t => t.source === 'sample').map(t => t.id);
-  if (!ids.length) { toast('No sample data found'); return; }
-  if (!confirm(`Remove ${ids.length} sample transaction(s)? Real data is kept. Sync after to update other devices.`)) return;
-  await deleteTransactions(ids);
-  toast(`Removed ${ids.length} sample transactions — tap Sync now on each device`);
+  const subIds = S.subscriptions.filter(s => s.source === 'sample').map(s => s.id);
+  if (!ids.length && !subIds.length) { toast('No sample data found'); return; }
+  if (!confirm(`Remove sample data? Real data is kept. Sync after to update other devices.`)) return;
+  if (ids.length) await deleteTransactions(ids);
+  if (subIds.length) {
+    S.subscriptions = S.subscriptions.filter(s => s.source !== 'sample');
+    await DB.kvSet('subscriptions', S.subscriptions);
+  }
+  toast(`Removed sample data — tap Sync now on each device`);
 }
 function loadSampleData() {
   const rows = buildSampleData();
@@ -1530,8 +1725,23 @@ function loadSampleData() {
   const accts = { 'Chequing': 'CAD', 'Amex': 'CAD', 'WS Invest': 'CAD', 'EU Bank': 'EUR', 'Freelance USD': 'USD' };
   Object.entries(accts).forEach(([n, c]) => { if (!(n in S.accounts)) S.accounts[n] = { currency: c }; });
   S.budgets = Object.assign({ Groceries: 600, Dining: 300, Subscriptions: 120, Transport: 150 }, S.budgets);
+  
+  // Seed sample manual subscriptions
+  const sampleSubs = [
+    { id: 'sub_sample_netflix', name: 'Netflix', amount: 18.99, currency: 'CAD', period: 'monthly', date: '2026-08-18', category: 'Subscriptions', account: 'Amex', source: 'sample' },
+    { id: 'sub_sample_spotify', name: 'Spotify Premium', amount: 11.99, currency: 'CAD', period: 'monthly', date: '2026-08-06', category: 'Subscriptions', account: 'Amex', source: 'sample' },
+    { id: 'sub_sample_adobe', name: 'Adobe Creative Cloud', amount: 59.99, currency: 'USD', period: 'monthly', date: '2026-08-09', category: 'Subscriptions', account: 'Freelance USD', source: 'sample' },
+    { id: 'sub_sample_claude', name: 'Anthropic Claude', amount: 20.00, currency: 'USD', period: 'monthly', date: '2026-08-12', category: 'Subscriptions', account: 'Freelance USD', source: 'sample' }
+  ];
+  const existingSubIds = new Set(S.subscriptions.map(s => s.id));
+  const subsToAdd = sampleSubs.filter(s => !existingSubIds.has(s.id));
+  if (subsToAdd.length) {
+    S.subscriptions.push(...subsToAdd);
+    DB.kvSet('subscriptions', S.subscriptions);
+  }
+
   DB.putTx(added); DB.kvSet('accounts', S.accounts); DB.kvSet('budgets', S.budgets);
-  toast(`Sample data loaded: ${added.length} transactions`); renderAll();
+  toast(`Sample data loaded: ${added.length} transactions, ${subsToAdd.length} subscriptions`); renderAll();
 }
 function buildSampleData() {
   const months = ['2026-05', '2026-06', '2026-07']; const out = [];
@@ -1581,6 +1791,7 @@ async function boot() {
   S.rates = await DB.kvGet('rates', []); S.budgets = await DB.kvGet('budgets', {}); S.rules = await DB.kvGet('rules', {});
   S.mappings = await DB.kvGet('mappings', {}); S.accounts = await DB.kvGet('accounts', {});
   S.jars = await DB.kvGet('jars', []); S.catJar = await DB.kvGet('catJar', {}); S.jarMoves = await DB.kvGet('jarMoves', []);
+  S.subscriptions = await DB.kvGet('subscriptions', []);
   await initDefaults();
   applyTheme(S.settings.theme || 'dark');
   renderAll();
@@ -1601,6 +1812,7 @@ function applyTheme(t) {
 $('#themeBtn').onclick = async () => { S.settings.theme = S.settings.theme === 'dark' ? 'light' : 'dark'; applyTheme(S.settings.theme); await DB.kvSet('settings', S.settings); };
 $('#settingsBtn').onclick = showSettings;
 $('#addTxBtn').onclick = () => openTxModal(null);
+$('#addSubBtn').onclick = () => openSubscriptionModal(null);
 $('#pickCsvBtn').onclick = () => $('#csvInput').click();
 $('#pickImgBtn').onclick = () => $('#imgInput').click();
 $('#cameraBtn').onclick = () => $('#cameraInput').click();
@@ -1624,5 +1836,6 @@ const tesScript = document.createElement('script'); tesScript.src = './vendor/te
 <script>
 boot();
 </script>
+</div>
 </body>
 </html>
