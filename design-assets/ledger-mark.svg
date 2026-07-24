@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Ledger app mark</title>
+  <rect width="64" height="64" rx="20" fill="#B94A34"/>
+  <path d="M23 17h10l-4 25h13l-2 7H18l5-32Z" fill="#FFFAF4"/>
+  <circle cx="44" cy="18" r="4" fill="#E2B65F"/>
+</svg>

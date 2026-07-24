@@ -1,0 +1,57 @@
+/* Ledger component reference. Production selectors live in index.html. */
+
+/* Primary button: default, hover, focus, active, disabled */
+.button-primary {
+  min-height: 42px;
+  padding: 10px 19px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 14px/1.4 var(--body);
+  transition: transform 160ms ease-out, background-color 160ms ease-out;
+}
+.button-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.button-primary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.button-primary:active { transform: translateY(1px) scale(.99); }
+.button-primary:disabled { cursor: default; opacity: .5; transform: none; }
+
+/* Card: border/shadow change only, so hover never changes geometry. */
+.surface-card {
+  padding: 22px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  transition: border-color 200ms ease-out, box-shadow 200ms ease-out;
+}
+.surface-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--hairline));
+}
+
+/* Navigation item */
+.nav-item {
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+.nav-item:hover { background: var(--raised); color: var(--ink); }
+.nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent-text); }
+
+/* Form control */
+.field {
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+}
+.field:focus {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.field:disabled { cursor: not-allowed; opacity: .5; }

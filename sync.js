@@ -44,6 +44,7 @@ async function buildSnapshot() {
     settings: { base: S.settings.base },        // theme is device-local, never leaves
     rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings,
     accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves,
+    subscriptions: S.subscriptions,
     transactions: S.tx,
     meta: { txTomb: { ...m.txTomb }, kv: JSON.parse(JSON.stringify(m.kv)) },
   };
@@ -116,6 +117,23 @@ function mergeSnapshots(a, b) {
 }
 
 async function applySnapshot(snap) {
+  const comparable = (source) => {
+    const out = {};
+    for (const key of Object.keys(SYNC_SCHEMA)) {
+      if (key === 'settings') out.settings = { base: source.settings?.base };
+      else out[key] = source[key];
+    }
+    out.transactions = [...(source.transactions || [])].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    return JSON.stringify(out);
+  };
+  const current = { ...S, settings: { base: S.settings.base }, transactions: S.tx };
+  const contentChanged = comparable(current) !== comparable(snap);
+  if (!contentChanged) {
+    const m = await getMeta();
+    m.txTomb = snap.meta.txTomb; m.kv = snap.meta.kv;
+    await saveMeta();
+    return false;
+  }
   const nextIds = new Set(snap.transactions.map(t => t.id));
   const toDelete = S.tx.map(t => t.id).filter(id => !nextIds.has(id));
   if (toDelete.length) await DB.deleteTx(toDelete, false);
@@ -136,8 +154,9 @@ async function applySnapshot(snap) {
   await saveMeta();
 
   // Never yank an open form out from under whoever is typing in it.
-  if (document.querySelector('.modal-backdrop.open')) { deferredRender = true; return; }
+  if (document.querySelector('.modal-backdrop.open')) { deferredRender = true; return true; }
   renderAll();
+  return true;
 }
 
 /* ---------- crypto ----------

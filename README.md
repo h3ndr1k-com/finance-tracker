@@ -40,3 +40,7 @@ Two people editing *the same transaction* within one sync window: the later edit
 **Not synced:** receipt images (the transaction and its data sync; the photo stays on the device that scanned it), and your light/dark theme (deliberately per-device). Sync needs IndexedDB, so it's unavailable in private-browsing modes.
 
 **Wipe all data** clears this device and unlinks it from Dropbox. The other device is untouched.
+
+## Design handoff
+
+The production design system lives in [`design-assets/`](design-assets/): concept explorations, light/dark tokens, component snippets, responsive mockups, and the printable style guide. See [`IMPLEMENTATION_NOTES.txt`](IMPLEMENTATION_NOTES.txt) for the hover/refresh root-cause report and QA checklist. Run `tests/ui-qa.js` with Playwright available on `NODE_PATH`; set `LEDGER_QA_BROWSER` to `firefox` or `webkit` for the cross-engine checks.

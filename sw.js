@@ -1,4 +1,4 @@
-const CACHE = 'ledger-v15';
+const CACHE = 'ledger-v16';
 const ASSETS = [
   './',
   './index.html',
@@ -40,7 +40,25 @@ self.addEventListener('fetch', (e) => {
   // cache-first handler, and letting it fall through here turns an offline
   // request into a confusing TypeError instead of a clean network error.
   if (new URL(e.request.url).origin !== self.location.origin) return;
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put('./index.html', copy));
+          return response;
+        })
+        .catch(() => caches.match('./index.html').then((hit) => hit || caches.match('./')))
+    );
+    return;
+  }
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request))
+    caches.match(e.request).then((hit) => {
+      const fresh = fetch(e.request).then((response) => {
+        if (response.ok) caches.open(CACHE).then((cache) => cache.put(e.request, response.clone()));
+        return response;
+      });
+      return hit || fresh;
+    })
   );
 });
