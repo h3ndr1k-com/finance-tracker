@@ -313,15 +313,24 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .budget-dashboard { padding-bottom: 18px; }
 .budget-dashboard .cardhead { margin-bottom: 4px; }
 .budget-total { font: 650 clamp(28px, 5vw, 42px)/1 var(--display); letter-spacing: -.04em; }
-.budget-chart { width: 100%; height: auto; display: block; margin: 15px 0 3px; overflow: visible; }
-.budget-chart .cap { opacity: .18; }
-.budget-chart .spent { opacity: .92; }
-.budget-chart text { font-family: var(--body); }
-.budget-chart .axis { stroke: var(--hairline); }
-.budget-key { display: flex; gap: 13px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
-.budget-key span { display: inline-flex; align-items: center; gap: 6px; }
-.budget-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--accent); }
-.budget-key i.capkey { opacity: .2; }
+.budget-donutwrap { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin-top: 16px; }
+.budget-donut { flex: none; width: min(178px, 44vw); height: auto; }
+.budget-donut .slice { cursor: pointer; transition: opacity .16s ease; }
+.budget-donut .slice:not(.active) { opacity: .68; }
+.budget-donut .slice.active { stroke-width: 20px; }
+.budget-donut text { font-family: var(--body); }
+.budget-donut-legend { flex: 1; min-width: min(100%, 190px); display: grid; gap: 3px; }
+.budget-donut-item { appearance: none; width: 100%; border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 7px 8px; text-align: left; font: inherit; }
+.budget-donut-item:hover, .budget-donut-item.active { background: var(--accent-soft); }
+.budget-donut-item .name { flex: 1; min-width: 0; }
+.budget-donut-item .amount { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.budget-row { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: transparent; border: 0; border-bottom: 1px solid var(--hairline); color: var(--ink); cursor: pointer; padding: 13px 0; text-align: left; font: inherit; }
+.budget-row:last-child { border-bottom: 0; }
+.budget-row:hover { background: color-mix(in srgb, var(--accent-soft) 42%, transparent); margin-inline: -8px; padding-inline: 8px; width: calc(100% + 16px); }
+.budget-row .budget-name { min-width: 0; }
+.budget-row .budget-meta { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.budget-row .budget-amount { text-align: right; white-space: nowrap; }
+.budget-row .budget-edit { display: block; color: var(--accent-text); font-size: 12px; margin-top: 3px; }
 .budget-composer { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, .7fr) auto; gap: 9px; align-items: end; padding: 14px 0 17px; border-bottom: 1px solid var(--hairline); margin-bottom: 17px; }
 .budget-composer label { display: block; color: var(--muted); font-size: 12px; margin: 0 0 5px; }
 .budget-composer input, .budget-composer select { width: 100%; }
@@ -355,6 +364,7 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
   .budget-composer { grid-template-columns: 1fr 1fr; }
   .budget-composer .actions { grid-column: 1 / -1; }
   .budget-composer .actions button { flex: 1; }
+  .budget-donutwrap { align-items: flex-start; }
 }
 
 .previewtable td, .previewtable th { padding: 5px 8px; font-size: 13px; cursor: default; }
@@ -885,6 +895,7 @@ const S = {
   subscriptions: [], creditCards: [],
   view: 'overview',
 };
+const CURRENCIES = ['CAD', 'EUR', 'USD'];
 
 const CATEGORIES = ['Groceries','Dining','Transport','Shopping','Subscriptions','Utilities','Housing','Health','Entertainment','Travel','Income','Investments','Transfer','Fees','Cash','Other'];
 const CAT_COLORS = {
@@ -907,7 +918,7 @@ const DEFAULT_CATJAR = {
   Dining:'play', Entertainment:'play', Shopping:'play', Travel:'play', Subscriptions:'play',
   Investments:'ffa',
 };
-const JAR_PALETTE = ['#171717','#2b2b2b','#3f3f3f','#535353','#676767','#7b7b7b','#8f8f8f','#a3a3a3','#b7b7b7','#cbcbcb'];
+const JAR_PALETTE = ['#2c7a7b','#7c3aed','#db2777','#d97706','#2563eb','#16a34a','#dc2626','#0891b2','#9333ea','#4d7c0f'];
 
 const ACCT_COLORS = ['#111111','#1b1b1b','#252525','#2f2f2f','#393939','#434343','#4d4d4d','#575757'];
 function acctColor(name) { let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return ACCT_COLORS[h % ACCT_COLORS.length]; }
@@ -1143,7 +1154,7 @@ function showMappingModal(filename, header, dataRows, cfg, signature) {
       <div class="formrow"><label>Description</label><select id="mDesc">${colOpts(cfg.cols.desc)}</select></div>
       <div class="formrow"><label>Amount</label><select id="mAmount">${colOpts(cfg.cols.amount)}</select><label style="min-width:auto;flex:none"><input type="checkbox" id="mFlip" style="flex:none" ${cfg.flipSign ? 'checked' : ''}> flip signs</label></div>
       <div class="formrow"><label>Debit col</label><select id="mDebit">${colOpts(cfg.cols.debit)}</select><label style="flex:none">Credit</label><select id="mCredit">${colOpts(cfg.cols.credit)}</select></div>
-      <div class="formrow"><label>Currency col</label><select id="mCurCol">${colOpts(cfg.cols.currency)}</select><label style="flex:none">Default</label><select id="mCur" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === cfg.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+      <div class="formrow"><label>Currency col</label><select id="mCurCol">${colOpts(cfg.cols.currency)}</select><label style="flex:none">Default</label><select id="mCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === cfg.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
       <div class="formrow"><label>Account</label><input id="mAccount" value="${esc(cfg.account)}"></div>
       <div class="formrow" style="justify-content:flex-end; margin-top:16px"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">Import</button></div>`;
     modal.classList.add('open');
@@ -1201,7 +1212,7 @@ function showReceiptModal(opts) {
     <img class="receiptimg" src="${opts.imgUrl}">
     <div class="formrow"><label>Merchant</label><input id="rMerchant" value="${esc(p.merchant)}"></div>
     <div class="formrow"><label>Date</label><input type="date" id="rDate" value="${p.date}"></div>
-    <div class="formrow"><label>Amount</label><input type="number" step="0.01" id="rAmount" value="${p.total ?? ''}" placeholder="0.00"><select id="rCur" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === p.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Amount</label><input type="number" step="0.01" id="rAmount" value="${p.total ?? ''}" placeholder="0.00"><select id="rCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === p.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Category</label><select id="rCat">${CATEGORIES.map(c => `<option ${c === categorize(p.merchant || '') ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Account</label><input id="rAccount" value="Receipts" list="acctList"><datalist id="acctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
     <div class="formrow" style="justify-content:flex-end; margin-top:16px"><button class="ghost" id="rCancel">Discard</button><button class="primary" id="rSave">Save transaction</button></div>`;
@@ -1237,7 +1248,7 @@ function openTxModal(existing) {
     <div class="formrow"><label>Date</label><input type="date" id="eDate" value="${t.date}"></div>
     <div class="formrow"><label for="eDesc">Description</label><div class="desc-combobox"><input id="eDesc" value="${esc(t.desc)}" placeholder="Merchant / note" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="eDescSuggestions"><div id="eDescSuggestions" class="desc-suggestions" role="listbox" aria-label="Matching descriptions"></div></div></div>
     <div class="formrow"><label>Flow</label><select id="eFlow" style="flex:none"><option value="out" ${flow==='out'?'selected':''}>Money out</option><option value="in" ${flow==='in'?'selected':''}>Money in</option><option value="transfer" ${flow==='transfer'?'selected':''}>Transfer (net-zero)</option></select></div>
-    <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="eAmount" value="${t.amount != null ? Math.abs(t.amount) : ''}" placeholder="0.00"><select id="eCur" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="eAmount" value="${t.amount != null ? Math.abs(t.amount) : ''}" placeholder="0.00"><select id="eCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Account</label><input id="eAccount" value="${esc(t.account)}" list="eAcctList" placeholder="e.g. Amex"><datalist id="eAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
     <div class="formrow"><label>Category</label><select id="eCat">${CATEGORIES.map(c => `<option ${c === t.category ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Jar</label><select id="eJar"><option value="">Auto (${esc((jarById(S.catJar[t.category]) || {name:'none'}).name)})</option>${S.jars.map(j => `<option value="${j.id}" ${t.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
@@ -1321,7 +1332,7 @@ function openSubscriptionModal(existing) {
     <h2>${existing ? 'Edit recurring expense' : 'Add recurring expense'}</h2>
     <div class="sub">Use this for rent, subscriptions, a planned card payment, or any bill that repeats.</div>
     <div class="formrow"><label>Name</label><input id="sName" value="${esc(sub.name)}" placeholder="e.g. Rent or Netflix"></div>
-    <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="sAmount" value="${sub.amount != null ? sub.amount : ''}" placeholder="0.00"><select id="sCur" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === sub.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="sAmount" value="${sub.amount != null ? sub.amount : ''}" placeholder="0.00"><select id="sCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === sub.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Period</label><select id="sPeriod"><option value="monthly" ${sub.period==='monthly'?'selected':''}>Monthly</option><option value="yearly" ${sub.period==='yearly'?'selected':''}>Yearly</option><option value="weekly" ${sub.period==='weekly'?'selected':''}>Weekly</option></select></div>
     <div class="formrow"><label>Next due</label><input type="date" id="sDate" value="${sub.date}"></div>
     <div class="formrow"><label>Account</label><input id="sAccount" value="${esc(sub.account)}" list="sAcctList" placeholder="e.g. Amex"><datalist id="sAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
@@ -1476,7 +1487,7 @@ function openCreditCardModal(existing) {
     <h2>${existing ? 'Edit credit card' : 'Add credit card'}</h2>
     <div class="sub">This planner uses today’s balance, a fixed APR, and no new purchases. Your issuer’s daily-interest method, fees, and statement dates can change the exact result.</div>
     <div class="formrow"><label for="ccName">Card name</label><input id="ccName" value="${esc(card.name)}" placeholder="e.g. Amex Gold"></div>
-    <div class="formrow"><label for="ccBalance">Current balance</label><input id="ccBalance" type="number" min="0" step="0.01" value="${card.balance}" placeholder="0.00"><select id="ccCurrency" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === card.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label for="ccBalance">Current balance</label><input id="ccBalance" type="number" min="0" step="0.01" value="${card.balance}" placeholder="0.00"><select id="ccCurrency" style="flex:none">${CURRENCIES.map(c => `<option ${c === card.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label for="ccApr">Annual interest</label><input id="ccApr" type="number" min="0" step="0.01" value="${card.apr}" placeholder="e.g. 19.99"><span class="sub">%</span></div>
     <div class="formrow"><label for="ccPayment">Monthly payment</label><input id="ccPayment" type="number" min="0" step="0.01" value="${card.payment}" placeholder="What you plan to pay"></div>
     <div class="formrow"><label for="ccAccount">Account</label><input id="ccAccount" value="${esc(card.account || '')}" list="ccAcctList" placeholder="Optional"><datalist id="ccAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
@@ -1711,6 +1722,7 @@ function renderOverview() {
     return;
   }
   const base = S.settings.base; const byAcct = {};
+  for (const [name, details] of Object.entries(S.accounts)) byAcct[name] = { native: 0, cur: details.currency || base, base: 0, mixed: false };
   for (const t of S.tx) { byAcct[t.account] = byAcct[t.account] || { native: 0, cur: t.currency, base: 0, mixed: false }; const a = byAcct[t.account]; if (t.currency !== a.cur) a.mixed = true; a.native += t.amount; a.base += toBase(t.amount, t.currency); }
   const net = Object.values(byAcct).reduce((s, a) => s + a.base, 0);
   const mk = thisMonth(), pm = prevMonth(mk); const agg = monthAgg();
@@ -1964,15 +1976,15 @@ function openJarEditor(id) {
     <h2>${id ? 'Edit jar' : 'New jar'}</h2>
     <div class="formrow"><label>Name</label><input id="jName" value="${esc(j.name)}" placeholder="e.g. Play"></div>
     <div class="formrow"><label>Percent</label><input type="number" id="jPct" value="${j.pct}" min="0" max="100" step="1" style="flex:none;width:110px"><span class="sub">% of income allocated here</span></div>
-    <div class="formrow"><label>Colour</label><div style="display:flex;gap:6px;flex-wrap:wrap">${JAR_PALETTE.map(c => `<span data-col="${c}" style="width:24px;height:24px;border-radius:7px;background:${c};cursor:pointer;border:2px solid ${c === j.color ? 'var(--ink)' : 'transparent'}"></span>`).join('')}</div></div>
+    <div class="formrow"><label for="jColor">Colour</label><input id="jColor" type="color" value="${j.color}" style="flex:none;width:56px;height:42px;padding:3px;cursor:pointer"><span class="sub">Choose any colour</span></div>
     <div class="formrow" style="justify-content:space-between;margin-top:16px"><span>${id ? `<button class="ghost danger" id="jDel">Delete</button>` : ''}</span><span><button class="ghost" id="jCancel">Cancel</button> <button class="primary" id="jSave">Save</button></span></div>`;
-  modal.classList.add('open'); let color = j.color;
-  $$('[data-col]').forEach(sw => sw.onclick = () => { color = sw.dataset.col; $$('[data-col]').forEach(s => s.style.border = '2px solid transparent'); sw.style.border = '2px solid var(--ink)'; });
+  modal.classList.add('open');
   $('#jCancel').onclick = () => modal.classList.remove('open');
   if (id) $('#jDel').onclick = async () => { if (S.jars.length <= 1) { toast('Keep at least one jar'); return; } S.jars = S.jars.filter(x => x.id !== id); Object.keys(S.catJar).forEach(c => { if (S.catJar[c] === id) S.catJar[c] = null; }); await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar); modal.classList.remove('open'); renderJars(); renderOverview(); };
   $('#jSave').onclick = async () => {
     const name = $('#jName').value.trim(); const pct = parseFloat($('#jPct').value);
     if (!name || isNaN(pct)) { toast('Name and percent required'); return; }
+    const color = $('#jColor').value;
     if (id) { const x = jarById(id); x.name = name; x.pct = pct; x.color = color; } else { S.jars.push({ id: uid(), name, pct, color }); }
     await DB.kvSet('jars', S.jars); modal.classList.remove('open'); renderJars(); renderOverview();
   };
@@ -1996,23 +2008,20 @@ function suggestedBudget(category, mk) {
   if (basis > 0) return Math.max(10, Math.ceil(basis / 10) * 10);
   return BUDGET_STARTERS[category] || 100;
 }
-function budgetChart(items) {
+let budgetDonutFocus = null;
+function budgetDonut(items) {
   if (!items.length) return '';
-  const W = 560, H = 184, left = 16, right = 16, top = 14, base = 142;
-  const max = Math.max(...items.flatMap(item => [item.cap, item.spend]), 1) * 1.08;
-  const slot = (W - left - right) / items.length;
-  const width = Math.min(38, slot * .56);
-  const short = (name) => name.length > 11 ? name.slice(0, 10) + '…' : name;
-  const rect = (value) => Math.max(value ? 3 : 0, (value / max) * (base - top));
-  const bars = items.map((item, i) => {
-    const x = left + i * slot + (slot - width) / 2;
-    const capHeight = rect(item.cap), spendHeight = rect(item.spend);
-    return `<g><title>${esc(item.category)}: ${esc(baseFmt(item.spend))} spent of ${esc(baseFmt(item.cap))}</title>
-      <rect class="cap" x="${x.toFixed(1)}" y="${(base - capHeight).toFixed(1)}" width="${width.toFixed(1)}" height="${capHeight.toFixed(1)}" rx="5" fill="${catColor(item.category)}"/>
-      <rect class="spent" x="${x.toFixed(1)}" y="${(base - spendHeight).toFixed(1)}" width="${width.toFixed(1)}" height="${spendHeight.toFixed(1)}" rx="5" fill="${item.over ? 'var(--coral)' : catColor(item.category)}"/>
-      <text x="${(x + width / 2).toFixed(1)}" y="${base + 18}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(short(item.category))}</text></g>`;
+  if (!items.some(item => item.category === budgetDonutFocus)) budgetDonutFocus = items[0].category;
+  const focused = items.find(item => item.category === budgetDonutFocus) || items[0];
+  const jar = jarById(S.catJar[focused.category]);
+  const total = items.reduce((sum, item) => sum + item.cap, 0) || 1;
+  const radius = 54, circumference = 2 * Math.PI * radius; let offset = 0;
+  const slices = items.map(item => {
+    const fraction = item.cap / total, length = fraction * circumference, active = item.category === focused.category;
+    const part = `<circle class="slice ${active ? 'active' : ''}" data-budget-focus="${esc(item.category)}" cx="70" cy="70" r="${radius}" fill="none" stroke="${catColor(item.category)}" stroke-width="16" stroke-dasharray="${length.toFixed(2)} ${(circumference - length).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 70 70)"><title>${esc(item.category)}: ${esc(baseFmt(item.cap))} planned, ${esc(baseFmt(item.spend))} spent</title></circle>`;
+    offset += length; return part;
   }).join('');
-  return `<svg class="budget-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Budget chart: spending compared with planned limits"><line class="axis" x1="${left}" y1="${base}" x2="${W - right}" y2="${base}"/>${bars}</svg>`;
+  return `<div class="budget-donutwrap"><svg class="budget-donut" viewBox="0 0 140 140" role="img" aria-label="Budget allocation pie chart"><circle cx="70" cy="70" r="${radius}" fill="none" stroke="var(--raised)" stroke-width="16"/>${slices}<text x="70" y="63" text-anchor="middle" font-size="10" fill="var(--muted)">Jar</text><text x="70" y="78" text-anchor="middle" font-size="12" font-weight="650" fill="var(--ink)">${esc(jar?.name || 'Unassigned')}</text><text x="70" y="94" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(focused.category)}</text></svg><div class="budget-donut-legend">${items.map(item => `<button type="button" class="budget-donut-item ${item.category === focused.category ? 'active' : ''}" data-budget-focus="${esc(item.category)}"><span class="dot" style="background:${catColor(item.category)}"></span><span class="name">${esc(item.category)}<span class="sub">${esc(jarById(S.catJar[item.category])?.name || 'Unassigned')}</span></span><span class="amount num">${baseFmt(item.cap)}</span></button>`).join('')}</div></div>`;
 }
 function renderBudgets() {
   const mkInput = $('#budgetMonth'); if (!mkInput.value) mkInput.value = thisMonth(); const mk = mkInput.value;
@@ -2021,12 +2030,12 @@ function renderBudgets() {
   const totalCap = planned.reduce((sum, item) => sum + item.cap, 0);
   const totalSpend = planned.reduce((sum, item) => sum + item.spend, 0);
   const remaining = totalCap - totalSpend;
-  const chartItems = [...planned].sort((a, b) => b.cap - a.cap).slice(0, 7).map(item => ({ ...item, over: item.spend > item.cap }));
+  const chartItems = [...planned].sort((a, b) => b.cap - a.cap).slice(0, 7);
   $('#budgetDashboard').innerHTML = planned.length ? `
     <div class="cardhead"><div><div class="label">Planned this month</div><div class="budget-total num">${baseFmt(totalCap)}</div></div><span class="pill ${remaining < 0 ? 'grey' : ''}" ${remaining < 0 ? 'style="background:var(--coral-soft);color:var(--coral)"' : ''}>${remaining < 0 ? `${baseFmt(-remaining)} over plan` : `${baseFmt(remaining)} left`}</span></div>
     <div class="sub num">${baseFmt(totalSpend)} spent across ${planned.length} ${planned.length === 1 ? 'budget' : 'budgets'}</div>
-    ${budgetChart(chartItems)}
-    <div class="budget-key"><span><i></i>Spent</span><span><i class="capkey"></i>Monthly limit</span><span>${chartItems.length < planned.length ? `Showing top ${chartItems.length} categories` : 'Each column is a category'}</span></div>` : `
+    ${budgetDonut(chartItems)}
+    <div class="sub" style="margin-top:12px">${chartItems.length < planned.length ? `Showing the ${chartItems.length} largest budgets. Select a slice to see its jar.` : 'Select a slice to see which jar funds that budget.'}</div>` : `
     <div class="cardhead"><div><div class="label">Monthly plan</div><div class="budget-total">Start with one limit</div></div></div>
     <p class="sub budget-empty">Add a category below. Ledger suggests an amount from your recent spending when it can, or starts with a sensible default.</p>`;
 
@@ -2039,10 +2048,8 @@ function renderBudgets() {
   </div>` : '';
   $('#budgetList').innerHTML = `${composer}${cats.length ? cats.map(c => {
     const v = spend[c] || 0, cap = S.budgets[c]; const pct = cap ? Math.min(100, v / cap * 100) : 0; const over = cap && v > cap;
-    return `<div class="barrow"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-      <span class="catpill"><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}${over ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">over by ${baseFmt(v - cap)}</span>` : ''}</span>
-      <span class="num sub">${baseFmt(v)}${cap ? ` / ${baseFmt(cap)}` : ''}<input type="number" class="budgetcap num" data-cat="${esc(c)}" value="${cap ?? ''}" placeholder="cap" style="width:84px;margin-left:8px" step="10" min="0"></span></div>
-      ${cap ? `<div class="bartrack"><div class="barfill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%; background:${over ? 'var(--coral)' : catColor(c)}"></div></div>` : ''}</div>`;
+    const jar = jarById(S.catJar[c]);
+    return `<button type="button" class="budget-row" data-edit-budget="${esc(c)}"><span class="budget-name"><span class="catpill"><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}${over ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">over by ${baseFmt(v - cap)}</span>` : ''}</span><span class="budget-meta">Jar: ${esc(jar?.name || 'Unassigned')} · ${cap ? `${pct.toFixed(0)}% used` : 'No limit set'}</span></span><span class="budget-amount num">${baseFmt(v)}${cap ? ` / ${baseFmt(cap)}` : ''}<span class="budget-edit">Edit</span></span></button>`;
   }).join('') : '<div class="empty">No spending in this month yet. Add a budget to start planning.</div>'}`;
   $('#addBudgetBtn').disabled = false;
   $('#addBudgetBtn').textContent = '＋ Add budget';
@@ -2062,21 +2069,51 @@ function renderBudgets() {
     if (Object.keys(S.budgets).some(existing => existing.toLocaleLowerCase() === category.toLocaleLowerCase())) { toast('That budget category already exists'); return; }
     S.budgets[category] = cap; await DB.kvSet('budgets', S.budgets); budgetComposerOpen = false; renderBudgets(); toast(`${category} budget added`);
   });
-  $$('.budgetcap').forEach(inp => inp.onchange = async () => { const v = parseFloat(inp.value); if (isNaN(v) || v <= 0) delete S.budgets[inp.dataset.cat]; else S.budgets[inp.dataset.cat] = v; await DB.kvSet('budgets', S.budgets); renderBudgets(); });
+  $$('[data-budget-focus]').forEach(control => control.onclick = () => { budgetDonutFocus = control.dataset.budgetFocus; renderBudgets(); });
+  $$('[data-edit-budget]').forEach(button => button.onclick = () => openBudgetEditor(button.dataset.editBudget));
+}
+function openBudgetEditor(category) {
+  const modal = $('#editModal'), body = $('#editBody');
+  const cap = S.budgets[category]; const mappedJar = S.catJar[category] || '';
+  body.innerHTML = `
+    <h2>Edit ${esc(category)} budget</h2>
+    <div class="sub">Choose the monthly limit and the jar this category should draw from. This jar mapping also applies to matching transactions unless you override an individual transaction.</div>
+    <div class="formrow"><label for="budgetEditCap">Monthly limit</label><input id="budgetEditCap" class="num" type="number" min="1" step="10" value="${cap}"><span class="sub">${S.settings.base}</span></div>
+    <div class="formrow"><label for="budgetEditJar">Jar</label><select id="budgetEditJar"><option value="">Unassigned</option>${S.jars.map(jar => `<option value="${jar.id}" ${jar.id === mappedJar ? 'selected' : ''}>${esc(jar.name)}</option>`).join('')}</select></div>
+    <div class="formrow" style="justify-content:space-between;margin-top:16px"><span><button class="ghost danger" id="budgetDelete">Remove budget</button></span><span><button class="ghost" id="budgetEditCancel">Cancel</button> <button class="primary" id="budgetEditSave">Save</button></span></div>`;
+  modal.classList.add('open');
+  $('#budgetEditCancel').onclick = () => modal.classList.remove('open');
+  $('#budgetDelete').onclick = async () => {
+    if (!confirm(`Remove the ${category} budget?`)) return;
+    delete S.budgets[category];
+    if (!CATEGORIES.includes(category)) delete S.catJar[category];
+    await DB.kvSet('budgets', S.budgets); await DB.kvSet('catJar', S.catJar);
+    modal.classList.remove('open'); renderBudgets(); renderJars(); toast(`${category} budget removed`);
+  };
+  $('#budgetEditSave').onclick = async () => {
+    const nextCap = parseFloat($('#budgetEditCap').value), jarId = $('#budgetEditJar').value;
+    if (!Number.isFinite(nextCap) || nextCap <= 0) { toast('Enter a monthly limit above zero'); $('#budgetEditCap').focus(); return; }
+    S.budgets[category] = nextCap; S.catJar[category] = jarId;
+    await DB.kvSet('budgets', S.budgets); await DB.kvSet('catJar', S.catJar);
+    modal.classList.remove('open'); renderBudgets(); renderJars(); renderOverview(); toast(`${category} budget saved`);
+  };
 }
 
 /* ---------- settings ---------- */
 function showSettings() {
-  const body = $('#settingsBody'); const KNOWN = ['USD', 'CAD', 'GBP', 'CHF'];
-  const curs = [...new Set([...KNOWN, ...S.rates.map(r => r.cur), ...S.tx.map(t => t.currency)])].filter(c => c !== 'EUR');
+  const body = $('#settingsBody'); const curs = ['USD', 'CAD'];
   body.innerHTML = `
     <h2>Settings</h2><div class="sub">All data stays on this device.</div>
-    <div class="formrow"><label>Base currency</label><select id="sBase" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Base currency</label><select id="sBase" style="flex:none">${CURRENCIES.map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <h2 style="margin-top:18px">Exchange rates</h2>
     <div class="sub">EUR per 1 unit of each currency. Edit anytime, every view recalculates. Cross rates go through EUR.</div>
     <div class="tablewrap"><table class="ratestable"><tr><th>Currency</th><th>EUR per 1</th><th>Date set</th></tr>
       ${curs.map(c => { const r = S.rates.find(x => x.cur === c) || { cur: c, eurPer: '', date: '' }; return `<tr><td>${c}</td><td><input type="number" step="0.0001" min="0" data-rcur="${c}" class="rateinp num" value="${r.eurPer}"></td><td class="sub num">${r.date || '-'}</td></tr>`; }).join('')}
     </table></div>
+    <h2 style="margin-top:18px">Accounts</h2>
+    <div class="sub">Add accounts here. They show on Overview immediately, even before you import activity.</div>
+    <div class="acctlist" style="margin:10px 0">${Object.keys(S.accounts).length ? Object.entries(S.accounts).sort(([a], [b]) => a.localeCompare(b)).map(([name, details]) => `<div class="acctrow"><span class="avatar" style="background:${acctColor(name)}">${esc(acctInitials(name))}</span><span class="name">${esc(name)}<span class="sub">${esc(details.currency || S.settings.base)}</span></span><button class="linkbtn danger" data-remove-account="${esc(name)}">Remove</button></div>`).join('') : '<div class="sub">No accounts yet.</div>'}</div>
+    <div class="formrow"><label for="sAccountName">New account</label><input id="sAccountName" placeholder="e.g. TD Visa"><select id="sAccountCurrency" style="flex:none">${CURRENCIES.map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select><button class="primary sm" id="sAddAccount">Add</button></div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
     <div id="syncPanel"></div>
@@ -2102,6 +2139,18 @@ function showSettings() {
   sDropzone.addEventListener('drop', (e) => handleFiles([...e.dataTransfer.files]));
   $('#sBase').onchange = async () => { S.settings.base = $('#sBase').value; await DB.kvSet('settings', S.settings); renderAll(); };
   $$('.rateinp').forEach(inp => inp.onchange = async () => { const cur = inp.dataset.rcur, v = parseFloat(inp.value); S.rates = S.rates.filter(r => r.cur !== cur); if (!isNaN(v) && v > 0) S.rates.push({ cur, eurPer: v, date: todayISO() }); await DB.kvSet('rates', S.rates); renderAll(); showSettings(); });
+  $('#sAddAccount').onclick = async () => {
+    const name = $('#sAccountName').value.trim(), currency = $('#sAccountCurrency').value;
+    if (!name) { toast('Name the account'); $('#sAccountName').focus(); return; }
+    if (Object.keys(S.accounts).some(existing => existing.toLocaleLowerCase() === name.toLocaleLowerCase())) { toast('That account already exists'); return; }
+    S.accounts[name] = { currency }; await DB.kvSet('accounts', S.accounts); renderAll(); showSettings(); toast(`${name} added`);
+  };
+  $$('[data-remove-account]').forEach(button => button.onclick = async () => {
+    const name = button.dataset.removeAccount;
+    const inUse = S.tx.some(t => t.account === name) || S.subscriptions.some(s => s.account === name) || S.creditCards.some(card => card.account === name);
+    if (inUse) { toast('Remove or rename its linked activity first'); return; }
+    delete S.accounts[name]; await DB.kvSet('accounts', S.accounts); renderAll(); showSettings(); toast(`${name} removed`);
+  });
   $('#sSample').onclick = () => { if (!confirm('Load demo transactions (Northwind Studio, Loblaws, etc.)? They sync to every connected device.')) return; $('#settingsModal').classList.remove('open'); loadSampleData(); };
   $('#sRemoveSample').onclick = async () => { await removeSampleData(); renderSyncPanel(); };
   $('#sExport').onclick = async () => {
