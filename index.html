@@ -327,6 +327,29 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .budget-composer input, .budget-composer select { width: 100%; }
 .budget-composer .actions { display: flex; gap: 8px; }
 .budget-empty { padding: 18px 0 4px; }
+.credit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 16px; }
+.credit-grid .card { margin-bottom: 0; }
+.credit-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.credit-balance { font: 650 clamp(30px, 5vw, 44px)/1 var(--display); letter-spacing: -.04em; margin-top: 9px; }
+.credit-plan { margin-top: 19px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+.credit-plan label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+.credit-plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.credit-plan input { width: 100%; }
+.credit-result { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.credit-result > div { border-top: 1px solid var(--hairline); padding-top: 10px; }
+.credit-result strong { display: block; font: 600 20px/1.1 var(--display); letter-spacing: -.02em; margin-top: 3px; }
+.credit-note { margin-top: 15px; font-size: 12px; color: var(--muted); }
+.credit-note.warn { color: var(--coral); }
+.jar-detail-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+.jar-detail-summary > div { border-top: 1px solid var(--hairline); padding-top: 9px; }
+.jar-detail-summary strong { display: block; font: 600 21px/1.08 var(--display); letter-spacing: -.02em; margin-top: 3px; }
+.jar-detail-adjust { padding: 15px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); margin: 18px 0; }
+.jar-detail-adjust .formrow { margin-bottom: 0; }
+.jar-detail-activity { max-height: 340px; overflow-y: auto; }
+.jar-detail-activity .recrow { cursor: default; }
+.jar-detail-activity .recrow:hover { background: transparent; }
+@media (max-width: 520px) { .jar-detail-summary { grid-template-columns: 1fr; gap: 8px; } }
+@media (max-width: 560px) { .credit-result { grid-template-columns: 1fr; gap: 8px; } }
 @media (max-width: 560px) {
   .budget-toolbar .primary { width: 100%; }
   .budget-composer { grid-template-columns: 1fr 1fr; }
@@ -592,7 +615,8 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
     <button type="button" data-view="transactions">Transactions</button>
     <button type="button" data-view="jars">Jars</button>
     <button type="button" data-view="budgets">Budgets</button>
-    <button type="button" data-view="subscriptions">Subscriptions</button>
+    <button type="button" data-view="subscriptions">Recurring</button>
+    <button type="button" data-view="credit-cards">Credit cards</button>
   </nav>
   <button type="button" class="iconbtn" id="themeBtn" title="Use light theme" aria-label="Use light theme">◐</button>
   <button type="button" class="iconbtn" id="addTxBtn" title="Add transaction" aria-label="Add transaction">＋</button>
@@ -627,23 +651,27 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
     <div class="card" id="budgetList"></div>
   </section>
   <section class="view" id="view-subscriptions">
-    <div class="view-heading"><h2>Subscriptions</h2><p>See recurring commitments, renewal dates, and price changes in one place.</p></div>
+    <div class="view-heading"><h2>Recurring</h2><p>Plan subscriptions, rent, card payments, and other bills that repeat.</p></div>
     <div class="card hero" style="padding-bottom: 24px;">
-      <div class="label">Total subscriptions</div>
+      <div class="label">Recurring monthly total</div>
       <div class="big num" id="subTotalAmt">$0.00</div>
       <div class="sub" style="margin-top: 4px;" id="subTotalBreakdown">no active subscriptions</div>
       <div style="margin-top: 16px;">
-        <button class="primary" id="addSubBtn">+ Add subscription</button>
+        <button class="primary" id="addSubBtn">＋ Add recurring expense</button>
       </div>
     </div>
     <div class="card">
-      <div class="cardhead"><div class="label">My subscriptions</div></div>
+      <div class="cardhead"><div class="label">My recurring expenses</div></div>
       <div class="reclist" id="mySubsList"></div>
     </div>
     <div class="card">
       <div class="cardhead"><div class="label">Auto-detected bills (from activity)</div></div>
       <div class="reclist" id="detectedSubsList"></div>
     </div>
+  </section>
+  <section class="view" id="view-credit-cards">
+    <div class="view-heading"><h2>Credit cards</h2><p>Model a payoff plan before you make it. Adjust a monthly payment or target timeline to see the interest cost.</p></div>
+    <div id="creditCardsList"></div>
   </section>
 </main>
 
@@ -657,7 +685,8 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   <button data-view="transactions"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>Activity</button>
   <button data-view="jars"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><path d="M6 8h12l-1 12H7L6 8zM9 8V5a3 3 0 0 1 6 0v3"/></svg>Jars</button>
   <button data-view="budgets"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6 4"/></svg>Budgets</button>
-  <button data-view="subscriptions"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M16 2v4M8 2v4M3 10h18"/></svg>Subs</button>
+  <button data-view="subscriptions"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M16 2v4M8 2v4M3 10h18"/></svg>Recurring</button>
+  <button data-view="credit-cards"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Cards</button>
 </nav>
 
 <div class="modal-backdrop" id="mappingModal"><div class="modal" id="mappingBody" role="dialog" aria-modal="true"></div></div>
@@ -688,7 +717,9 @@ const SYNC_SCHEMA = {
   jars:     { kind: 'array', key: 'id' },
   catJar:   { kind: 'map' },
   jarMoves: { kind: 'array', key: 'id' },
+  jarAdjustments: { kind: 'array', key: 'id' },
   subscriptions: { kind: 'array', key: 'id' },
+  creditCards: { kind: 'array', key: 'id' },
 };
 const SYNC_META_KEY = 'syncMeta';
 const TOMB_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -850,8 +881,8 @@ const S = {
   tx: [], txIds: new Set(),
   settings: { base: 'CAD', theme: 'dark' },
   rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {},
-  jars: [], catJar: {}, jarMoves: [],
-  subscriptions: [],
+  jars: [], catJar: {}, jarMoves: [], jarAdjustments: [],
+  subscriptions: [], creditCards: [],
   view: 'overview',
 };
 
@@ -1284,16 +1315,18 @@ async function deleteTransactions(ids) {
 /* ---------- subscriptions add / edit / delete ---------- */
 function openSubscriptionModal(existing) {
   const modal = $('#editModal'), body = $('#editBody');
-  const sub = existing || { name: '', amount: null, currency: S.settings.base, period: 'monthly', date: todayISO(), category: 'Subscriptions', account: '' };
+  const sub = existing || { name: '', amount: null, currency: S.settings.base, period: 'monthly', date: todayISO(), category: 'Subscriptions', account: '', jar: '' };
   
   body.innerHTML = `
-    <h2>${existing ? 'Edit subscription' : 'Add subscription'}</h2>
-    <div class="formrow"><label>Name</label><input id="sName" value="${esc(sub.name)}" placeholder="e.g. Netflix"></div>
+    <h2>${existing ? 'Edit recurring expense' : 'Add recurring expense'}</h2>
+    <div class="sub">Use this for rent, subscriptions, a planned card payment, or any bill that repeats.</div>
+    <div class="formrow"><label>Name</label><input id="sName" value="${esc(sub.name)}" placeholder="e.g. Rent or Netflix"></div>
     <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="sAmount" value="${sub.amount != null ? sub.amount : ''}" placeholder="0.00"><select id="sCur" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === sub.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Period</label><select id="sPeriod"><option value="monthly" ${sub.period==='monthly'?'selected':''}>Monthly</option><option value="yearly" ${sub.period==='yearly'?'selected':''}>Yearly</option><option value="weekly" ${sub.period==='weekly'?'selected':''}>Weekly</option></select></div>
-    <div class="formrow"><label>Next Renewal</label><input type="date" id="sDate" value="${sub.date}"></div>
+    <div class="formrow"><label>Next due</label><input type="date" id="sDate" value="${sub.date}"></div>
     <div class="formrow"><label>Account</label><input id="sAccount" value="${esc(sub.account)}" list="sAcctList" placeholder="e.g. Amex"><datalist id="sAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
     <div class="formrow"><label>Category</label><select id="sCat">${CATEGORIES.map(c => `<option ${c === sub.category ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Jar</label><select id="sJar"><option value="">Auto from category</option>${S.jars.map(j => `<option value="${j.id}" ${sub.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
     <div class="formrow" style="justify-content:space-between; margin-top:16px">
       <span>${existing ? `<button class="ghost danger" id="sDelete">Delete</button>` : ''}</span>
       <span><button class="ghost" id="sCancel">Cancel</button> <button class="primary" id="sSave">Save</button></span>
@@ -1318,11 +1351,12 @@ function openSubscriptionModal(existing) {
     const period = $('#sPeriod').value;
     const currency = $('#sCur').value;
     const category = $('#sCat').value;
+    const jar = $('#sJar').value;
     
-    const missing = [!name && 'name', isNaN(amt) && 'amount', !date && 'next renewal date', !account && 'account'].filter(Boolean);
+    const missing = [!name && 'name', isNaN(amt) && 'amount', !date && 'next due date', !account && 'account'].filter(Boolean);
     if (missing.length) { toast('Missing: ' + missing.join(', ')); return; }
     
-    const ns = { id: existing ? existing.id : uid(), name, amount: amt, currency, period, date, category, account, source: existing ? existing.source : 'manual' };
+    const ns = { id: existing ? existing.id : uid(), name, amount: amt, currency, period, date, category, account, jar, source: existing ? existing.source : 'manual' };
     if (existing) {
       const idx = S.subscriptions.findIndex(x => x.id === existing.id);
       if (idx >= 0) S.subscriptions[idx] = ns;
@@ -1332,7 +1366,7 @@ function openSubscriptionModal(existing) {
     await DB.kvSet('subscriptions', S.subscriptions);
     if (!(account in S.accounts)) { S.accounts[account] = { currency }; await DB.kvSet('accounts', S.accounts); }
     modal.classList.remove('open');
-    toast(existing ? 'Saved' : 'Subscription added');
+      toast(existing ? 'Saved' : 'Recurring expense added');
     renderAll();
   };
 }
@@ -1362,7 +1396,7 @@ function renderSubscriptions() {
   
   // Render manual list
   if (!S.subscriptions.length) {
-    mySubsEl.innerHTML = `<div class="sub" style="padding: 10px 0;">No manual subscriptions added yet. Click "+ Add subscription" to add Netflix, Spotify, gym membership, etc.</div>`;
+    mySubsEl.innerHTML = `<div class="sub" style="padding: 10px 0;">No recurring expenses added yet. Add rent, a planned credit-card payment, or a subscription.</div>`;
   } else {
     mySubsEl.innerHTML = S.subscriptions.map((s, i) => {
       let freqSuffix = s.period === 'monthly' ? '/mo' : (s.period === 'yearly' ? '/yr' : '/wk');
@@ -1374,7 +1408,7 @@ function renderSubscriptions() {
       return `
         <div class="recrow manual-sub-row" data-id="${s.id}">
           <span class="dot" style="background:${catColor(s.category)}"></span>
-          <span class="name">${esc(s.name)}<span class="sub">${esc(s.account)} · renews ${dayLabel(s.date)}</span></span>
+          <span class="name">${esc(s.name)}<span class="sub">${esc(s.account)} · due ${dayLabel(s.date)} · ${s.jar ? `Jar: ${esc(jarById(s.jar)?.name || 'none')}` : `Jar: ${esc(jarById(S.catJar[s.category])?.name || 'none')} (auto)`}</span></span>
           <span class="num" style="text-align:right;white-space:nowrap">
             ${fmtMoney(s.amount, s.currency)}${freqSuffix}
             ${s.currency !== S.settings.base ? `<span class="sub num">${baseFmt(monthlyEquivalent)}/mo equivalent</span>` : ''}
@@ -1407,6 +1441,85 @@ function renderSubscriptions() {
   }
 }
 
+/* ---------- credit-card payoff planner ---------- */
+function monthlyPaymentForTerm(balance, apr, months) {
+  const rate = Math.max(0, apr) / 100 / 12;
+  if (!balance || !months) return 0;
+  return rate === 0 ? balance / months : balance * rate / (1 - Math.pow(1 + rate, -months));
+}
+function payoffEstimate(balance, apr, payment) {
+  const rate = Math.max(0, apr) / 100 / 12;
+  if (balance <= 0) return { months: 0, interest: 0, total: 0 };
+  if (!payment || payment <= balance * rate + 0.001) return { never: true, monthlyInterest: balance * rate };
+  let remaining = balance, interest = 0, months = 0;
+  while (remaining > 0.005 && months < 1200) {
+    const charge = remaining * rate;
+    const paid = Math.min(payment, remaining + charge);
+    interest += charge; remaining = remaining + charge - paid; months++;
+  }
+  return remaining > 0.005 ? { never: true, monthlyInterest: balance * rate } : { months, interest, total: balance + interest };
+}
+function payoffLabel(months) {
+  if (!months) return 'paid off now';
+  const years = Math.floor(months / 12), rest = months % 12;
+  return years ? `${years}y${rest ? ` ${rest}m` : ''}` : `${months} months`;
+}
+function payoffDate(months) {
+  if (!months) return 'today';
+  const d = new Date(); d.setMonth(d.getMonth() + months);
+  return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+function openCreditCardModal(existing) {
+  const modal = $('#editModal'), body = $('#editBody');
+  const card = existing || { name: '', balance: '', apr: 19.99, payment: '', currency: S.settings.base, account: '' };
+  body.innerHTML = `
+    <h2>${existing ? 'Edit credit card' : 'Add credit card'}</h2>
+    <div class="sub">This planner uses today’s balance, a fixed APR, and no new purchases. Your issuer’s daily-interest method, fees, and statement dates can change the exact result.</div>
+    <div class="formrow"><label for="ccName">Card name</label><input id="ccName" value="${esc(card.name)}" placeholder="e.g. Amex Gold"></div>
+    <div class="formrow"><label for="ccBalance">Current balance</label><input id="ccBalance" type="number" min="0" step="0.01" value="${card.balance}" placeholder="0.00"><select id="ccCurrency" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === card.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label for="ccApr">Annual interest</label><input id="ccApr" type="number" min="0" step="0.01" value="${card.apr}" placeholder="e.g. 19.99"><span class="sub">%</span></div>
+    <div class="formrow"><label for="ccPayment">Monthly payment</label><input id="ccPayment" type="number" min="0" step="0.01" value="${card.payment}" placeholder="What you plan to pay"></div>
+    <div class="formrow"><label for="ccAccount">Account</label><input id="ccAccount" value="${esc(card.account || '')}" list="ccAcctList" placeholder="Optional"><datalist id="ccAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
+    <div class="formrow" style="justify-content:space-between;margin-top:16px"><span>${existing ? '<button class="ghost danger" id="ccDelete">Delete</button>' : ''}</span><span><button class="ghost" id="ccCancel">Cancel</button> <button class="primary" id="ccSave">Save card</button></span></div>`;
+  modal.classList.add('open');
+  $('#ccCancel').onclick = () => modal.classList.remove('open');
+  if (existing) $('#ccDelete').onclick = async () => { if (!confirm(`Delete ${card.name}?`)) return; S.creditCards = S.creditCards.filter(x => x.id !== existing.id); await DB.kvSet('creditCards', S.creditCards); modal.classList.remove('open'); renderAll(); toast('Credit card deleted'); };
+  $('#ccSave').onclick = async () => {
+    const name = $('#ccName').value.trim(), balance = parseFloat($('#ccBalance').value), apr = parseFloat($('#ccApr').value), payment = parseFloat($('#ccPayment').value), currency = $('#ccCurrency').value, account = $('#ccAccount').value.trim();
+    if (!name || !Number.isFinite(balance) || balance < 0 || !Number.isFinite(apr) || apr < 0 || !Number.isFinite(payment) || payment <= 0) { toast('Add a name, balance, APR, and monthly payment'); return; }
+    const next = { id: existing ? existing.id : uid(), name, balance, apr, payment, currency, account };
+    const index = S.creditCards.findIndex(x => x.id === next.id);
+    if (index >= 0) S.creditCards[index] = next; else S.creditCards.push(next);
+    await DB.kvSet('creditCards', S.creditCards);
+    if (account && !(account in S.accounts)) { S.accounts[account] = { currency }; await DB.kvSet('accounts', S.accounts); }
+    modal.classList.remove('open'); renderAll(); toast(existing ? 'Credit card saved' : 'Credit card added');
+  };
+}
+async function updateCreditCardPlan(id, patch) {
+  const card = S.creditCards.find(x => x.id === id); if (!card) return;
+  Object.assign(card, patch); await DB.kvSet('creditCards', S.creditCards); renderCreditCards();
+}
+function renderCreditCards() {
+  const el = $('#creditCardsList'); if (!el) return;
+  if (!S.creditCards.length) {
+    el.innerHTML = `<div class="card"><div class="label">Payoff planner</div><div class="mid">Know the cost before you carry a balance.</div><p class="sub" style="margin:10px 0 18px;max-width:60ch">Add a card, enter what you owe and its APR, then compare your current monthly payment against a payoff timeline.</p><button class="primary" id="addCreditCardBtn">＋ Add credit card</button></div>`;
+    $('#addCreditCardBtn').onclick = () => openCreditCardModal(null); return;
+  }
+  el.innerHTML = `<div class="cardhead" style="margin-bottom:16px"><div class="sub">Estimates assume no new purchases and a steady interest rate.</div><button class="primary sm" id="addCreditCardBtn">＋ Add credit card</button></div><div class="credit-grid">${S.creditCards.map(card => {
+    const estimate = payoffEstimate(card.balance, card.apr, card.payment);
+    const targetMonths = estimate.never ? 12 : Math.max(1, estimate.months);
+    const required = monthlyPaymentForTerm(card.balance, card.apr, targetMonths);
+    return `<section class="card" data-card="${card.id}"><div class="credit-card-head"><div><div class="label">${esc(card.name)}</div><div class="credit-balance num">${fmtMoney(card.balance, card.currency)}</div><div class="sub">${card.apr.toFixed(2)}% APR${card.account ? ` · ${esc(card.account)}` : ''}</div></div><button class="linkbtn ccEdit" data-id="${card.id}">Edit</button></div>
+      <div class="credit-plan"><div class="credit-plan-grid"><div><label for="ccPayment-${card.id}">Pay each month</label><input id="ccPayment-${card.id}" class="ccPayment num" data-id="${card.id}" type="number" min="0.01" step="0.01" value="${card.payment}"></div><div><label for="ccMonths-${card.id}">Or clear it in</label><input id="ccMonths-${card.id}" class="ccMonths num" data-id="${card.id}" type="number" min="1" max="600" step="1" value="${targetMonths}"><span class="sub">months</span></div></div>
+        ${estimate.never ? `<p class="credit-note warn">This payment is not enough to cover roughly ${fmtMoney(estimate.monthlyInterest, card.currency)} of monthly interest. Increase it to start reducing the balance.</p>` : `<div class="credit-result"><div><span class="sub">Debt-free in</span><strong>${payoffLabel(estimate.months)}</strong><span class="sub">around ${payoffDate(estimate.months)}</span></div><div><span class="sub">Interest cost</span><strong class="num">${fmtMoney(estimate.interest, card.currency)}</strong><span class="sub">${fmtMoney(estimate.total, card.currency)} total repaid</span></div></div><p class="credit-note">To finish in ${targetMonths} months, pay ${fmtMoney(required, card.currency)}/month.</p>`}
+      </div></section>`;
+  }).join('')}</div>`;
+  $('#addCreditCardBtn').onclick = () => openCreditCardModal(null);
+  $$('.ccEdit').forEach(button => button.onclick = () => openCreditCardModal(S.creditCards.find(card => card.id === button.dataset.id)));
+  $$('.ccPayment').forEach(input => input.onchange = async () => { const payment = parseFloat(input.value); if (payment > 0) await updateCreditCardPlan(input.dataset.id, { payment }); else toast('Monthly payment must be above zero'); });
+  $$('.ccMonths').forEach(input => input.onchange = async () => { const card = S.creditCards.find(item => item.id === input.dataset.id), months = parseInt(input.value, 10); if (!card || !Number.isFinite(months) || months < 1) { toast('Enter at least one month'); return; } await updateCreditCardPlan(card.id, { payment: monthlyPaymentForTerm(card.balance, card.apr, months) }); });
+}
+
 /* ---------- aggregation ---------- */
 function monthAgg() {
   const agg = {};
@@ -1427,7 +1540,24 @@ function jarBalances() {
     else { const jid = txJar(t); if (jid && bal[jid] !== undefined) bal[jid] += v; }
   }
   for (const m of S.jarMoves) { if (bal[m.from] !== undefined) bal[m.from] -= m.amount; if (bal[m.to] !== undefined) bal[m.to] += m.amount; }
+  for (const a of S.jarAdjustments) if (bal[a.jarId] !== undefined) bal[a.jarId] += a.amount;
   return bal;
+}
+function jarActivity(jarId) {
+  const entries = []; const totalPct = S.jars.reduce((sum, jar) => sum + jar.pct, 0) || 1;
+  const jar = jarById(jarId);
+  for (const t of S.tx) {
+    if (isTransfer(t)) continue;
+    const value = toBase(t.amount, t.currency);
+    if (value > 0 && jar) entries.push({ date: t.date, amount: value * jar.pct / totalPct, label: 'Income allocation', detail: t.desc, type: 'in' });
+    else if (value < 0 && txJar(t) === jarId) entries.push({ date: t.date, amount: value, label: 'Spending', detail: t.desc, type: 'out' });
+  }
+  for (const move of S.jarMoves) {
+    if (move.from === jarId) entries.push({ date: move.date, amount: -move.amount, label: 'Moved to ' + (jarById(move.to)?.name || 'another jar'), detail: 'Manual jar move', type: 'out' });
+    if (move.to === jarId) entries.push({ date: move.date, amount: move.amount, label: 'Moved from ' + (jarById(move.from)?.name || 'another jar'), detail: 'Manual jar move', type: 'in' });
+  }
+  for (const adjustment of S.jarAdjustments) if (adjustment.jarId === jarId) entries.push({ date: adjustment.date, amount: adjustment.amount, label: 'Balance adjustment', detail: adjustment.note || 'Set current balance', type: adjustment.amount >= 0 ? 'in' : 'out' });
+  return entries.sort((a, b) => b.date.localeCompare(a.date));
 }
 function jarSpendThisMonth(jid, mk) {
   let s = 0;
@@ -1545,7 +1675,7 @@ function trendChart(months, agg) {
 }
 
 /* ---------- rendering ---------- */
-function renderAll() { renderOverview(); renderTransactions(); renderJars(); renderBudgets(); renderSubscriptions(); }
+function renderAll() { renderOverview(); renderTransactions(); renderJars(); renderBudgets(); renderSubscriptions(); renderCreditCards(); }
 function baseFmt(v, opts) { return fmtMoney(v, S.settings.base, opts); }
 
 const MOTION_OK = matchMedia('(prefers-reduced-motion: no-preference)').matches;
@@ -1763,8 +1893,8 @@ function renderJars() {
       <div class="jargrid" style="margin-top:14px">
         ${S.jars.map(j => {
           const spend = jarSpendThisMonth(j.id, mk); const alloc = monthIncome * j.pct / (totPct || 1);
-          return `<div class="jarcard">
-            <button class="iconbtn jedit" data-edit-jar="${j.id}">✎</button>
+          return `<div class="jarcard" data-open-jar="${j.id}" role="button" tabindex="0" aria-label="Open ${esc(j.name)} jar details">
+            <button class="iconbtn jedit" data-edit-jar="${j.id}" aria-label="Edit ${esc(j.name)} jar">✎</button>
             <div class="jtop"><span class="dot" style="background:${j.color};width:11px;height:11px"></span><span class="jname">${esc(j.name)}</span><span class="jpct">${j.pct}%</span></div>
             <div class="jbal num cu ${bal[j.id] < 0 ? 'neg' : ''}" data-v="${bal[j.id]}">${baseFmt(bal[j.id])}</div>
             <div class="jspend num">this mo: +${baseFmt(alloc)} in · −${baseFmt(spend)} out</div>
@@ -1788,7 +1918,11 @@ function renderJars() {
         <select data-catjar="${c}" style="flex:none"><option value="">none</option>${S.jars.map(j => `<option value="${j.id}" ${S.catJar[c] === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>`).join('')}
     </div>`;
   $('#addJarBtn').onclick = () => openJarEditor(null);
-  $$('[data-edit-jar]').forEach(b => b.onclick = () => openJarEditor(b.dataset.editJar));
+  $$('[data-edit-jar]').forEach(b => b.onclick = (e) => { e.stopPropagation(); openJarEditor(b.dataset.editJar); });
+  $$('[data-open-jar]').forEach(card => {
+    card.onclick = () => openJarDetail(card.dataset.openJar);
+    card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJarDetail(card.dataset.openJar); } };
+  });
   $$('[data-catjar]').forEach(sel => sel.onchange = async () => { S.catJar[sel.dataset.catjar] = sel.value || null; await DB.kvSet('catJar', S.catJar); renderJars(); renderOverview(); });
   $('#mvGo').onclick = async () => {
     const from = $('#mvFrom').value, to = $('#mvTo').value, amt = parseFloat($('#mvAmt').value);
@@ -1798,6 +1932,31 @@ function renderJars() {
   };
   $$('[data-undo-move]').forEach(b => b.onclick = async () => { S.jarMoves = S.jarMoves.filter(m => m.id !== b.dataset.undoMove); await DB.kvSet('jarMoves', S.jarMoves); renderJars(); });
   enterCharts('#view-jars');
+}
+function openJarDetail(jarId) {
+  const jar = jarById(jarId); if (!jar) return;
+  const modal = $('#detailModal'), body = $('#detailBody');
+  const balance = jarBalances()[jarId] || 0;
+  const activity = jarActivity(jarId);
+  const allocated = activity.filter(item => item.label === 'Income allocation').reduce((sum, item) => sum + item.amount, 0);
+  const spent = -activity.filter(item => item.label === 'Spending').reduce((sum, item) => sum + item.amount, 0);
+  body.innerHTML = `
+    <div class="cardhead"><div><h2 style="margin-bottom:4px"><span class="dot" style="background:${jar.color};width:11px;height:11px"></span>${esc(jar.name)}</h2><div class="sub">${jar.pct}% of income · full jar history</div></div><button class="linkbtn" id="jarDetailEdit">Edit jar</button></div>
+    <div class="jar-detail-summary"><div><span class="sub">Current balance</span><strong class="num ${balance < 0 ? 'neg' : ''}">${baseFmt(balance)}</strong></div><div><span class="sub">Income allocated</span><strong class="num pos">${baseFmt(allocated)}</strong></div><div><span class="sub">Spent from jar</span><strong class="num">${baseFmt(spent)}</strong></div></div>
+    <div class="jar-detail-adjust"><div class="label">Correct this balance</div><div class="sub" style="margin-bottom:10px">Set the balance you want today. Ledger records one adjustment and keeps your imported transaction history intact.</div><div class="formrow"><label for="jarTargetBalance">Set balance to</label><input id="jarTargetBalance" class="num" type="number" step="0.01" value="0" style="max-width:150px"><span class="sub">${S.settings.base}</span><button class="primary sm" id="jarSetBalance">Apply</button></div></div>
+    <div class="cardhead"><div class="label">Activity</div><span class="sub">${activity.length} entries</span></div>
+    <div class="jar-detail-activity">${activity.length ? activity.slice(0, 100).map(item => `<div class="recrow"><span class="dot" style="background:${item.type === 'in' ? 'var(--positive)' : 'var(--coral)'}"></span><span class="name">${esc(item.label)}<span class="sub">${esc(item.detail)} · ${dayLabel(item.date)}</span></span><span class="num ${item.amount < 0 ? 'neg' : 'pos'}">${item.amount < 0 ? '−' : '+'}${baseFmt(Math.abs(item.amount))}</span></div>`).join('') : '<div class="sub" style="padding:12px 0">Nothing has been allocated to or spent from this jar yet.</div>'}</div>
+    ${activity.length > 100 ? '<div class="sub" style="margin-top:10px">Showing the latest 100 entries.</div>' : ''}`;
+  modal.classList.add('open');
+  $('#jarDetailEdit').onclick = () => { modal.classList.remove('open'); openJarEditor(jarId); };
+  $('#jarSetBalance').onclick = async () => {
+    const target = parseFloat($('#jarTargetBalance').value);
+    if (!Number.isFinite(target)) { toast('Enter a valid balance'); return; }
+    const current = jarBalances()[jarId] || 0; const amount = target - current;
+    if (Math.abs(amount) < 0.005) { toast('This jar is already at that balance'); return; }
+    S.jarAdjustments.push({ id: uid(), jarId, amount, date: todayISO(), note: `Set balance to ${baseFmt(target)}` });
+    await DB.kvSet('jarAdjustments', S.jarAdjustments); modal.classList.remove('open'); renderJars(); renderOverview(); toast(`${jar.name} set to ${baseFmt(target)}`);
+  };
 }
 function openJarEditor(id) {
   const modal = $('#jarModal'), body = $('#jarBody'); const j = id ? jarById(id) : { name: '', pct: 10, color: JAR_PALETTE[S.jars.length % JAR_PALETTE.length] };
@@ -1872,9 +2031,9 @@ function renderBudgets() {
     <p class="sub budget-empty">Add a category below. Ledger suggests an amount from your recent spending when it can, or starts with a sensible default.</p>`;
 
   const selectable = CATEGORIES.filter(c => !S.budgets[c] && !['Income', 'Investments', 'Transfer'].includes(c));
-  const selected = selectable[0] || '';
-  const composer = budgetComposerOpen && selected ? `<div class="budget-composer" aria-label="Add a budget">
-    <div><label for="budgetNewCategory">Category</label><select id="budgetNewCategory">${selectable.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></div>
+  const selected = selectable[0] || '__custom';
+  const composer = budgetComposerOpen ? `<div class="budget-composer" aria-label="Add a budget">
+    <div><label for="budgetNewCategory">Category</label><select id="budgetNewCategory">${selectable.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}<option value="__custom" ${selected === '__custom' ? 'selected' : ''}>Custom…</option></select><input id="budgetCustomCategory" maxlength="40" placeholder="e.g. Phone" style="display:${selected === '__custom' ? 'block' : 'none'};margin-top:8px" aria-label="Custom budget category"></div>
     <div><label for="budgetNewCap">Monthly limit</label><input id="budgetNewCap" class="num" type="number" min="1" step="10" value="${suggestedBudget(selected, mk)}"></div>
     <div class="actions"><button class="ghost sm" type="button" id="budgetAddCancel">Cancel</button><button class="primary sm" type="button" id="budgetAddSave">Add</button></div>
   </div>` : '';
@@ -1885,14 +2044,22 @@ function renderBudgets() {
       <span class="num sub">${baseFmt(v)}${cap ? ` / ${baseFmt(cap)}` : ''}<input type="number" class="budgetcap num" data-cat="${esc(c)}" value="${cap ?? ''}" placeholder="cap" style="width:84px;margin-left:8px" step="10" min="0"></span></div>
       ${cap ? `<div class="bartrack"><div class="barfill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%; background:${over ? 'var(--coral)' : catColor(c)}"></div></div>` : ''}</div>`;
   }).join('') : '<div class="empty">No spending in this month yet. Add a budget to start planning.</div>'}`;
-  $('#addBudgetBtn').disabled = !selectable.length;
-  $('#addBudgetBtn').textContent = selectable.length ? '＋ Add budget' : 'All categories budgeted';
+  $('#addBudgetBtn').disabled = false;
+  $('#addBudgetBtn').textContent = '＋ Add budget';
   $('#addBudgetBtn').onclick = () => { budgetComposerOpen = true; renderBudgets(); $('#budgetNewCategory')?.focus(); };
-  $('#budgetNewCategory')?.addEventListener('change', () => { $('#budgetNewCap').value = suggestedBudget($('#budgetNewCategory').value, mk); });
+  $('#budgetNewCategory')?.addEventListener('change', () => {
+    const custom = $('#budgetNewCategory').value === '__custom';
+    $('#budgetCustomCategory').style.display = custom ? 'block' : 'none';
+    if (custom) { $('#budgetNewCap').value = 100; $('#budgetCustomCategory').focus(); }
+    else $('#budgetNewCap').value = suggestedBudget($('#budgetNewCategory').value, mk);
+  });
   $('#budgetAddCancel')?.addEventListener('click', () => { budgetComposerOpen = false; renderBudgets(); });
   $('#budgetAddSave')?.addEventListener('click', async () => {
-    const category = $('#budgetNewCategory').value, cap = parseFloat($('#budgetNewCap').value);
-    if (!category || !Number.isFinite(cap) || cap <= 0) { toast('Enter a monthly limit above zero'); $('#budgetNewCap').focus(); return; }
+    const rawCategory = $('#budgetNewCategory').value;
+    const category = rawCategory === '__custom' ? $('#budgetCustomCategory').value.trim() : rawCategory;
+    const cap = parseFloat($('#budgetNewCap').value);
+    if (!category || !Number.isFinite(cap) || cap <= 0) { toast(!category ? 'Name your custom category' : 'Enter a monthly limit above zero'); (!category ? $('#budgetCustomCategory') : $('#budgetNewCap')).focus(); return; }
+    if (Object.keys(S.budgets).some(existing => existing.toLocaleLowerCase() === category.toLocaleLowerCase())) { toast('That budget category already exists'); return; }
     S.budgets[category] = cap; await DB.kvSet('budgets', S.budgets); budgetComposerOpen = false; renderBudgets(); toast(`${category} budget added`);
   });
   $$('.budgetcap').forEach(inp => inp.onchange = async () => { const v = parseFloat(inp.value); if (isNaN(v) || v <= 0) delete S.budgets[inp.dataset.cat]; else S.budgets[inp.dataset.cat] = v; await DB.kvSet('budgets', S.budgets); renderBudgets(); });
@@ -1938,13 +2105,13 @@ function showSettings() {
   $('#sSample').onclick = () => { if (!confirm('Load demo transactions (Northwind Studio, Loblaws, etc.)? They sync to every connected device.')) return; $('#settingsModal').classList.remove('open'); loadSampleData(); };
   $('#sRemoveSample').onclick = async () => { await removeSampleData(); renderSyncPanel(); };
   $('#sExport').onclick = async () => {
-    const payload = { exportedAt: new Date().toISOString(), settings: S.settings, rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, transactions: S.tx };
+    const payload = { exportedAt: new Date().toISOString(), settings: S.settings, rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards, transactions: S.tx };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ledger-export-${todayISO()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
   $('#sWipe').onclick = async () => {
-    if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, subscriptions? This cannot be undone.')) return;
-    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], subscriptions: [], settings: { base: S.settings.base, theme: S.settings.theme } });
+    if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, recurring expenses, and credit cards? This cannot be undone.')) return;
+    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], settings: { base: S.settings.base, theme: S.settings.theme } });
     S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar);
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
   };
@@ -2095,8 +2262,9 @@ async function boot() {
   S.settings = await DB.kvGet('settings', { base: 'CAD', theme: 'dark' });
   S.rates = await DB.kvGet('rates', []); S.budgets = await DB.kvGet('budgets', {}); S.rules = await DB.kvGet('rules', {});
   S.mappings = await DB.kvGet('mappings', {}); S.accounts = await DB.kvGet('accounts', {});
-  S.jars = await DB.kvGet('jars', []); S.catJar = await DB.kvGet('catJar', {}); S.jarMoves = await DB.kvGet('jarMoves', []);
+  S.jars = await DB.kvGet('jars', []); S.catJar = await DB.kvGet('catJar', {}); S.jarMoves = await DB.kvGet('jarMoves', []); S.jarAdjustments = await DB.kvGet('jarAdjustments', []);
   S.subscriptions = await DB.kvGet('subscriptions', []);
+  S.creditCards = await DB.kvGet('creditCards', []);
   await initDefaults();
   applyTheme(S.settings.theme || 'dark');
   renderAll();
