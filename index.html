@@ -288,11 +288,51 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .formrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .formrow label { font-size: 13px; color: var(--muted); min-width: 90px; }
 .formrow input, .formrow select { flex: 1; min-width: 90px; }
+.desc-combobox { position: relative; flex: 1; min-width: 90px; }
+.desc-combobox input { width: 100%; }
+.desc-suggestions {
+  position: absolute; z-index: 2; top: calc(100% + 6px); left: 0; right: 0;
+  display: none; overflow: hidden; background: var(--card); border: 1px solid var(--hairline);
+  border-radius: 10px; box-shadow: 0 14px 30px -18px color-mix(in srgb, var(--ink) 48%, transparent);
+}
+.desc-suggestions.open { display: block; }
+.desc-suggestion {
+  width: 100%; appearance: none; border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
+  background: transparent; color: var(--ink); cursor: pointer; display: block; padding: 9px 11px;
+  font: inherit; font-size: 14px; text-align: left; transition: background-color .14s ease;
+}
+.desc-suggestion:last-child { border-bottom: 0; }
+.desc-suggestion:hover, .desc-suggestion.active { background: var(--accent-soft); }
 
 .barrow { margin-bottom: 15px; }
 .bartrack { height: 8px; border-radius: 4px; background: var(--hairline); overflow: hidden; margin-top: 7px; }
 .barfill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .5s cubic-bezier(.2,.7,.2,1); }
 .barfill.over { background: var(--coral); }
+.budget-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.budget-toolbar .formrow { margin: 0; }
+.budget-dashboard { padding-bottom: 18px; }
+.budget-dashboard .cardhead { margin-bottom: 4px; }
+.budget-total { font: 650 clamp(28px, 5vw, 42px)/1 var(--display); letter-spacing: -.04em; }
+.budget-chart { width: 100%; height: auto; display: block; margin: 15px 0 3px; overflow: visible; }
+.budget-chart .cap { opacity: .18; }
+.budget-chart .spent { opacity: .92; }
+.budget-chart text { font-family: var(--body); }
+.budget-chart .axis { stroke: var(--hairline); }
+.budget-key { display: flex; gap: 13px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.budget-key span { display: inline-flex; align-items: center; gap: 6px; }
+.budget-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--accent); }
+.budget-key i.capkey { opacity: .2; }
+.budget-composer { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, .7fr) auto; gap: 9px; align-items: end; padding: 14px 0 17px; border-bottom: 1px solid var(--hairline); margin-bottom: 17px; }
+.budget-composer label { display: block; color: var(--muted); font-size: 12px; margin: 0 0 5px; }
+.budget-composer input, .budget-composer select { width: 100%; }
+.budget-composer .actions { display: flex; gap: 8px; }
+.budget-empty { padding: 18px 0 4px; }
+@media (max-width: 560px) {
+  .budget-toolbar .primary { width: 100%; }
+  .budget-composer { grid-template-columns: 1fr 1fr; }
+  .budget-composer .actions { grid-column: 1 / -1; }
+  .budget-composer .actions button { flex: 1; }
+}
 
 .previewtable td, .previewtable th { padding: 5px 8px; font-size: 13px; cursor: default; }
 .catselect { border: none; background: transparent; color: var(--muted); font-size: 13px; padding: 2px 4px; cursor: pointer; }
@@ -576,10 +616,14 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   <section class="view" id="view-jars"></section>
   <section class="view" id="view-budgets">
     <div class="view-heading"><h2>Budgets</h2><p>Set flexible monthly limits and see what needs attention.</p></div>
-    <div class="formrow" style="margin-bottom:16px">
-      <label>Month</label>
-      <input type="month" id="budgetMonth" style="flex:none">
+    <div class="budget-toolbar">
+      <div class="formrow">
+        <label for="budgetMonth">Month</label>
+        <input type="month" id="budgetMonth" style="flex:none">
+      </div>
+      <button class="primary" id="addBudgetBtn" type="button">＋ Add budget</button>
     </div>
+    <div class="card budget-dashboard" id="budgetDashboard"></div>
     <div class="card" id="budgetList"></div>
   </section>
   <section class="view" id="view-subscriptions">
@@ -1160,7 +1204,7 @@ function openTxModal(existing) {
   body.innerHTML = `
     <h2>${existing ? 'Edit transaction' : 'Add transaction'}</h2>
     <div class="formrow"><label>Date</label><input type="date" id="eDate" value="${t.date}"></div>
-    <div class="formrow"><label>Description</label><input id="eDesc" value="${esc(t.desc)}" placeholder="Merchant / note"></div>
+    <div class="formrow"><label for="eDesc">Description</label><div class="desc-combobox"><input id="eDesc" value="${esc(t.desc)}" placeholder="Merchant / note" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="eDescSuggestions"><div id="eDescSuggestions" class="desc-suggestions" role="listbox" aria-label="Matching descriptions"></div></div></div>
     <div class="formrow"><label>Flow</label><select id="eFlow" style="flex:none"><option value="out" ${flow==='out'?'selected':''}>Money out</option><option value="in" ${flow==='in'?'selected':''}>Money in</option><option value="transfer" ${flow==='transfer'?'selected':''}>Transfer (net-zero)</option></select></div>
     <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="eAmount" value="${t.amount != null ? Math.abs(t.amount) : ''}" placeholder="0.00"><select id="eCur" style="flex:none">${['EUR','USD','CAD','GBP','CHF'].map(c => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Account</label><input id="eAccount" value="${esc(t.account)}" list="eAcctList" placeholder="e.g. Amex"><datalist id="eAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
@@ -1171,6 +1215,7 @@ function openTxModal(existing) {
       <span><button class="ghost" id="eCancel">Cancel</button> <button class="primary" id="eSave">Save</button></span>
     </div>`;
   modal.classList.add('open');
+  setupDescriptionSuggestions();
   $('#eCancel').onclick = () => modal.classList.remove('open');
   if (existing) $('#eDelete').onclick = async () => { await deleteTransactions([existing.id]); modal.classList.remove('open'); toast('Transaction deleted'); };
   $('#eSave').onclick = async () => {
@@ -1185,6 +1230,51 @@ function openTxModal(existing) {
     if (!(account in S.accounts)) { S.accounts[account] = { currency: nt.currency }; await DB.kvSet('accounts', S.accounts); }
     modal.classList.remove('open'); toast(existing ? 'Saved' : 'Transaction added'); renderAll();
   };
+}
+function setupDescriptionSuggestions() {
+  const input = $('#eDesc'), list = $('#eDescSuggestions');
+  let matches = [], active = -1, closeTimer;
+  const close = () => {
+    list.classList.remove('open'); input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant'); active = -1;
+  };
+  const choose = (value) => { input.value = value; close(); input.focus(); };
+  const updateActive = () => {
+    $$('.desc-suggestion', list).forEach((item, i) => {
+      item.classList.toggle('active', i === active); item.setAttribute('aria-selected', String(i === active));
+    });
+    if (active >= 0) input.setAttribute('aria-activedescendant', `eDescSuggestion${active}`);
+    else input.removeAttribute('aria-activedescendant');
+  };
+  const render = () => {
+    const query = input.value.trim().toLocaleLowerCase();
+    if (query.length < 2) { matches = []; close(); return; }
+    const unique = new Map();
+    S.tx.forEach(t => {
+      const value = t.desc?.trim(); if (!value || !value.toLocaleLowerCase().startsWith(query)) return;
+      const key = value.toLocaleLowerCase(), seen = unique.get(key) || { value, count: 0, date: '' };
+      seen.count++; if (t.date > seen.date) seen.date = t.date; unique.set(key, seen);
+    });
+    matches = [...unique.values()].sort((a, b) => b.count - a.count || b.date.localeCompare(a.date) || a.value.localeCompare(b.value)).slice(0, 6);
+    active = -1;
+    if (!matches.length) { close(); return; }
+    list.innerHTML = matches.map((match, i) => `<button type="button" class="desc-suggestion" role="option" id="eDescSuggestion${i}" aria-selected="false">${esc(match.value)}</button>`).join('');
+    list.classList.add('open'); input.setAttribute('aria-expanded', 'true');
+  };
+  input.addEventListener('input', render);
+  input.addEventListener('focus', () => { clearTimeout(closeTimer); render(); });
+  input.addEventListener('blur', () => { closeTimer = setTimeout(close, 120); });
+  input.addEventListener('keydown', (e) => {
+    if (!matches.length || !list.classList.contains('open')) { if (e.key === 'Escape') close(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); active = e.key === 'ArrowDown' ? (active + 1) % matches.length : (active - 1 + matches.length) % matches.length; updateActive();
+    } else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); choose(matches[active].value); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); }
+  });
+  list.addEventListener('pointerdown', (e) => {
+    const option = e.target.closest('.desc-suggestion'); if (!option) return;
+    e.preventDefault(); clearTimeout(closeTimer); const index = $$('.desc-suggestion', list).indexOf(option); if (matches[index]) choose(matches[index].value);
+  });
 }
 async function deleteTransactions(ids) {
   await DB.deleteTx(ids); const set = new Set(ids);
@@ -1730,16 +1820,81 @@ function openJarEditor(id) {
 }
 
 /* ---------- budgets ---------- */
+let budgetComposerOpen = false;
+const BUDGET_STARTERS = { Groceries: 600, Dining: 300, Transport: 150, Subscriptions: 120, Utilities: 200, Shopping: 200, Health: 100, Entertainment: 120, Travel: 250, Housing: 1800 };
+function priorBudgetMonths(mk, count = 3) {
+  const [year, month] = mk.split('-').map(Number); const out = [];
+  for (let i = 1; i <= count; i++) {
+    const d = new Date(year, month - 1 - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+function suggestedBudget(category, mk) {
+  const history = priorBudgetMonths(mk).map(month => categorySpend(month)[category] || 0).filter(Boolean);
+  const current = categorySpend(mk)[category] || 0;
+  const basis = history.length ? history.reduce((sum, value) => sum + value, 0) / history.length : current;
+  if (basis > 0) return Math.max(10, Math.ceil(basis / 10) * 10);
+  return BUDGET_STARTERS[category] || 100;
+}
+function budgetChart(items) {
+  if (!items.length) return '';
+  const W = 560, H = 184, left = 16, right = 16, top = 14, base = 142;
+  const max = Math.max(...items.flatMap(item => [item.cap, item.spend]), 1) * 1.08;
+  const slot = (W - left - right) / items.length;
+  const width = Math.min(38, slot * .56);
+  const short = (name) => name.length > 11 ? name.slice(0, 10) + '…' : name;
+  const rect = (value) => Math.max(value ? 3 : 0, (value / max) * (base - top));
+  const bars = items.map((item, i) => {
+    const x = left + i * slot + (slot - width) / 2;
+    const capHeight = rect(item.cap), spendHeight = rect(item.spend);
+    return `<g><title>${esc(item.category)}: ${esc(baseFmt(item.spend))} spent of ${esc(baseFmt(item.cap))}</title>
+      <rect class="cap" x="${x.toFixed(1)}" y="${(base - capHeight).toFixed(1)}" width="${width.toFixed(1)}" height="${capHeight.toFixed(1)}" rx="5" fill="${catColor(item.category)}"/>
+      <rect class="spent" x="${x.toFixed(1)}" y="${(base - spendHeight).toFixed(1)}" width="${width.toFixed(1)}" height="${spendHeight.toFixed(1)}" rx="5" fill="${item.over ? 'var(--coral)' : catColor(item.category)}"/>
+      <text x="${(x + width / 2).toFixed(1)}" y="${base + 18}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(short(item.category))}</text></g>`;
+  }).join('');
+  return `<svg class="budget-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Budget chart: spending compared with planned limits"><line class="axis" x1="${left}" y1="${base}" x2="${W - right}" y2="${base}"/>${bars}</svg>`;
+}
 function renderBudgets() {
   const mkInput = $('#budgetMonth'); if (!mkInput.value) mkInput.value = thisMonth(); const mk = mkInput.value;
   const spend = categorySpend(mk); const cats = [...new Set([...Object.keys(spend), ...Object.keys(S.budgets)])].sort((a, b) => (spend[b] || 0) - (spend[a] || 0));
-  $('#budgetList').innerHTML = cats.length ? cats.map(c => {
+  const planned = Object.entries(S.budgets).map(([category, cap]) => ({ category, cap, spend: spend[category] || 0 })).filter(item => item.cap > 0);
+  const totalCap = planned.reduce((sum, item) => sum + item.cap, 0);
+  const totalSpend = planned.reduce((sum, item) => sum + item.spend, 0);
+  const remaining = totalCap - totalSpend;
+  const chartItems = [...planned].sort((a, b) => b.cap - a.cap).slice(0, 7).map(item => ({ ...item, over: item.spend > item.cap }));
+  $('#budgetDashboard').innerHTML = planned.length ? `
+    <div class="cardhead"><div><div class="label">Planned this month</div><div class="budget-total num">${baseFmt(totalCap)}</div></div><span class="pill ${remaining < 0 ? 'grey' : ''}" ${remaining < 0 ? 'style="background:var(--coral-soft);color:var(--coral)"' : ''}>${remaining < 0 ? `${baseFmt(-remaining)} over plan` : `${baseFmt(remaining)} left`}</span></div>
+    <div class="sub num">${baseFmt(totalSpend)} spent across ${planned.length} ${planned.length === 1 ? 'budget' : 'budgets'}</div>
+    ${budgetChart(chartItems)}
+    <div class="budget-key"><span><i></i>Spent</span><span><i class="capkey"></i>Monthly limit</span><span>${chartItems.length < planned.length ? `Showing top ${chartItems.length} categories` : 'Each column is a category'}</span></div>` : `
+    <div class="cardhead"><div><div class="label">Monthly plan</div><div class="budget-total">Start with one limit</div></div></div>
+    <p class="sub budget-empty">Add a category below. Ledger suggests an amount from your recent spending when it can, or starts with a sensible default.</p>`;
+
+  const selectable = CATEGORIES.filter(c => !S.budgets[c] && !['Income', 'Investments', 'Transfer'].includes(c));
+  const selected = selectable[0] || '';
+  const composer = budgetComposerOpen && selected ? `<div class="budget-composer" aria-label="Add a budget">
+    <div><label for="budgetNewCategory">Category</label><select id="budgetNewCategory">${selectable.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></div>
+    <div><label for="budgetNewCap">Monthly limit</label><input id="budgetNewCap" class="num" type="number" min="1" step="10" value="${suggestedBudget(selected, mk)}"></div>
+    <div class="actions"><button class="ghost sm" type="button" id="budgetAddCancel">Cancel</button><button class="primary sm" type="button" id="budgetAddSave">Add</button></div>
+  </div>` : '';
+  $('#budgetList').innerHTML = `${composer}${cats.length ? cats.map(c => {
     const v = spend[c] || 0, cap = S.budgets[c]; const pct = cap ? Math.min(100, v / cap * 100) : 0; const over = cap && v > cap;
     return `<div class="barrow"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
       <span class="catpill"><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}${over ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">over by ${baseFmt(v - cap)}</span>` : ''}</span>
       <span class="num sub">${baseFmt(v)}${cap ? ` / ${baseFmt(cap)}` : ''}<input type="number" class="budgetcap num" data-cat="${esc(c)}" value="${cap ?? ''}" placeholder="cap" style="width:84px;margin-left:8px" step="10" min="0"></span></div>
       ${cap ? `<div class="bartrack"><div class="barfill ${over ? 'over' : ''}" style="width:${pct.toFixed(1)}%; background:${over ? 'var(--coral)' : catColor(c)}"></div></div>` : ''}</div>`;
-  }).join('') : '<div class="empty">No spending in this month yet.</div>';
+  }).join('') : '<div class="empty">No spending in this month yet. Add a budget to start planning.</div>'}`;
+  $('#addBudgetBtn').disabled = !selectable.length;
+  $('#addBudgetBtn').textContent = selectable.length ? '＋ Add budget' : 'All categories budgeted';
+  $('#addBudgetBtn').onclick = () => { budgetComposerOpen = true; renderBudgets(); $('#budgetNewCategory')?.focus(); };
+  $('#budgetNewCategory')?.addEventListener('change', () => { $('#budgetNewCap').value = suggestedBudget($('#budgetNewCategory').value, mk); });
+  $('#budgetAddCancel')?.addEventListener('click', () => { budgetComposerOpen = false; renderBudgets(); });
+  $('#budgetAddSave')?.addEventListener('click', async () => {
+    const category = $('#budgetNewCategory').value, cap = parseFloat($('#budgetNewCap').value);
+    if (!category || !Number.isFinite(cap) || cap <= 0) { toast('Enter a monthly limit above zero'); $('#budgetNewCap').focus(); return; }
+    S.budgets[category] = cap; await DB.kvSet('budgets', S.budgets); budgetComposerOpen = false; renderBudgets(); toast(`${category} budget added`);
+  });
   $$('.budgetcap').forEach(inp => inp.onchange = async () => { const v = parseFloat(inp.value); if (isNaN(v) || v <= 0) delete S.budgets[inp.dataset.cat]; else S.budgets[inp.dataset.cat] = v; await DB.kvSet('budgets', S.budgets); renderBudgets(); });
 }
 
@@ -1821,6 +1976,8 @@ async function renderSyncPanel() {
       ${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</div>
     ${!connected ? `
       <div class="formrow"><label>Dropbox app key</label><input id="syAppKey" value="${esc(cfg.appKey || '')}" placeholder="from dropbox.com/developers"></div>
+      <div class="sub">In Dropbox Developer Console → Settings → OAuth 2 → Redirect URIs, add this exact address: <code>${esc(typeof redirectUri === 'function' ? redirectUri() : location.href)}</code>. Save there, reload this page, then connect.</div>
+      <div class="sub">If you want this key to survive new previews or rebuilds, drop a <code>sync-config.json</code> beside the app with <code>{"appKey":"..."}</code>.</div>
       <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect Dropbox</button></div>`
     : `
       <div class="formrow"><label>Passphrase</label><input type="password" id="syPass" placeholder="${hasPassphrase() ? 'set on this device' : 'same on both devices'}">
@@ -1931,6 +2088,9 @@ async function initDefaults() {
 }
 async function boot() {
   await DB.open();
+  if (navigator.storage?.persist) {
+    try { await navigator.storage.persist(); } catch {}
+  }
   S.tx = await DB.getAllTx(); S.txIds = new Set(S.tx.map(t => t.id));
   S.settings = await DB.kvGet('settings', { base: 'CAD', theme: 'dark' });
   S.rates = await DB.kvGet('rates', []); S.budgets = await DB.kvGet('budgets', {}); S.rules = await DB.kvGet('rules', {});

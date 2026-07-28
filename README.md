@@ -26,6 +26,8 @@ Off by default. When on, each device encrypts a full snapshot with a passphrase 
 
 After that it syncs on open, on focus, and a few seconds after any edit. There's also a manual **Sync now**.
 
+If you want the Dropbox app key to survive preview rebuilds or branch checkouts, you can also serve a small `sync-config.json` next to the app with `{ "appKey": "..." }`. The app will use it as a bootstrap when the saved browser state is empty.
+
 **Keep a passphrase you won't lose.** It never leaves your devices and there is no reset - if you both forget it, the Dropbox copy is unrecoverable. Export JSON is the escape hatch; keep one somewhere safe.
 
 ### How conflicts resolve
