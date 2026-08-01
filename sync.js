@@ -17,6 +17,7 @@ let syncTimer = null;
 let inflight = null, pending = false;
 let syncStatus = { state: 'off', detail: '' };
 let deferredRender = false;
+let syncFocusPassphrase = false;
 
 async function getSyncBootstrap() {
   if (syncBootstrap !== undefined) return syncBootstrap;
@@ -377,8 +378,14 @@ async function initSync() {
   if (cfg.rememberPass) passphrase = await DB.kvGet(SYNC_PASS_KEY, null);
 
   const params = new URLSearchParams(location.search);
+  let connectedThisVisit = false;
   if (params.get('code')) {
-    try { await finishDropboxAuth(params.get('code')); history.replaceState({}, '', redirectUri()); toast('Dropbox connected'); }
+    try {
+      await finishDropboxAuth(params.get('code'));
+      connectedThisVisit = true;
+      history.replaceState({}, '', redirectUri());
+      toast('Dropbox connected. Enter the shared passphrase to start syncing.');
+    }
     catch (e) { toast(e.message); history.replaceState({}, '', redirectUri()); }
   }
   document.addEventListener('visibilitychange', () => {
@@ -393,7 +400,11 @@ async function initSync() {
     if (syncCfg?.enabled && syncCfg.refreshToken && passphrase) syncNow();
   });
   if (syncCfg.enabled && syncCfg.refreshToken) {
-    setStatus(passphrase ? 'idle' : 'needs-pass', passphrase ? '' : 'Passphrase needed');
+    setStatus(passphrase ? 'idle' : 'needs-pass', passphrase ? '' : 'Enter the shared passphrase to sync');
     if (passphrase) syncNow();
+    else if (connectedThisVisit && typeof showSettings === 'function') {
+      syncFocusPassphrase = true;
+      showSettings();
+    }
   } else setStatus('off');
 }

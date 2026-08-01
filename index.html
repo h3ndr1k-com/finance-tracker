@@ -288,6 +288,12 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .formrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .formrow label { font-size: 13px; color: var(--muted); min-width: 90px; }
 .formrow input, .formrow select { flex: 1; min-width: 90px; }
+.sync-recovery {
+  margin: 12px 0 14px; padding: 12px 14px; background: var(--accent-soft); color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--hairline)); border-radius: 11px;
+}
+.sync-recovery strong { display: block; margin-bottom: 3px; font-size: 14px; }
+.sync-recovery p { margin: 0; max-width: 58ch; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .desc-combobox { position: relative; flex: 1; min-width: 90px; }
 .desc-combobox input { width: 100%; }
 .desc-suggestions {
@@ -2116,7 +2122,7 @@ function showSettings() {
     <div class="formrow"><label for="sAccountName">New account</label><input id="sAccountName" placeholder="e.g. TD Visa"><select id="sAccountCurrency" style="flex:none">${CURRENCIES.map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select><button class="primary sm" id="sAddAccount">Add</button></div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
-    <div id="syncPanel"></div>
+    <div id="syncPanel" aria-live="polite"></div>
     <section class="settings-import" aria-labelledby="importHeading">
       <h2 id="importHeading">Import</h2>
       <div class="sub">Add a CSV statement or receipt without cluttering your ledger.</div>
@@ -2169,7 +2175,7 @@ function showSettings() {
 /* ---------- sync settings panel ---------- */
 const SYNC_LABEL = {
   off: 'Not connected', idle: 'Connected', syncing: 'Syncing…', ok: 'Synced',
-  offline: 'Offline, will retry', error: 'Sync problem', 'needs-pass': 'Passphrase needed', 'needs-auth': 'Reconnect Dropbox',
+  offline: 'Offline, will retry', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect Dropbox',
 };
 function relTime(ms) {
   if (!ms) return 'never';
@@ -2185,6 +2191,7 @@ async function renderSyncPanel() {
   const cfg = await getSyncCfg();
   const st = getStatus(); const m = await getMeta();
   const connected = cfg.enabled && cfg.refreshToken;
+  const needsPassphrase = connected && !hasPassphrase();
   el.innerHTML = `
     <div class="formrow" style="margin-top:10px"><label>Status</label>
       <span class="pill ${st.state === 'error' || st.state === 'needs-auth' ? 'grey' : ''}">${esc(SYNC_LABEL[st.state] || st.state)}</span>
@@ -2196,10 +2203,11 @@ async function renderSyncPanel() {
       <div class="sub">If you want this key to survive new previews or rebuilds, drop a <code>sync-config.json</code> beside the app with <code>{"appKey":"..."}</code>.</div>
       <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect Dropbox</button></div>`
     : `
-      <div class="formrow"><label>Passphrase</label><input type="password" id="syPass" placeholder="${hasPassphrase() ? 'set on this device' : 'same on both devices'}">
-        <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember</label>
-        <button class="ghost sm" id="sySetPass">Set</button></div>
-      <div class="sub">If you both forget this, the Dropbox copy is unrecoverable. Keep an Export JSON somewhere safe.</div>
+      ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>Dropbox is connected — one more step.</strong><p>Enter the same passphrase used on the other device. Dropbox never stores it, so reconnecting alone cannot start syncing.</p></div>` : ''}
+      <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other device'}">
+        <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember on this device</label>
+        <button class="ghost sm" id="sySetPass">${needsPassphrase ? 'Unlock & sync' : 'Update'}</button></div>
+      <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the Dropbox copy is unrecoverable.</div>
       <div class="formrow" style="justify-content:flex-end; margin-top:10px">
         <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
         <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
@@ -2211,13 +2219,17 @@ async function renderSyncPanel() {
       const p = $('#syPass').value;
       if (p.length < 8) { toast('Use at least 8 characters'); return; }
       await setPassphrase(p, $('#syRemember').checked);
-      toast('Passphrase set'); renderSyncPanel(); syncNow();
+      toast('Passphrase set — syncing now'); renderSyncPanel(); syncNow();
     };
     $('#sySync').onclick = () => syncNow();
     $('#syDisconnect').onclick = async () => {
       if (!confirm('Disconnect this device from Dropbox? Local data stays; the other device is untouched.')) return;
       await disconnectSync(); renderSyncPanel();
     };
+    if (needsPassphrase && syncFocusPassphrase) {
+      syncFocusPassphrase = false;
+      requestAnimationFrame(() => $('#syPass')?.focus());
+    }
   }
 }
 document.addEventListener('syncstatus', () => { if ($('#settingsModal').classList.contains('open')) renderSyncPanel(); });
