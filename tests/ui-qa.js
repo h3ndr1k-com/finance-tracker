@@ -39,7 +39,21 @@ function stable(before, after, label) {
   page.on('dialog', (dialog) => dialog.accept());
 
   await page.goto(baseURL, { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'Load sample data' }).click();
+  await page.evaluate(async () => {
+    const rows = [
+      { id: 'qa-tx-1', date: '2026-05-01', desc: 'Payroll - QA Corp', amount: 4200, currency: 'CAD', account: 'Chequing', source: 'qa', category: 'Income' },
+      { id: 'qa-tx-2', date: '2026-05-03', desc: 'Loblaws Market', amount: -142.18, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Groceries' },
+      { id: 'qa-tx-3', date: '2026-06-03', desc: 'Loblaws Market', amount: -96.4, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Groceries' },
+      { id: 'qa-tx-4', date: '2026-07-03', desc: 'Loblaws Market', amount: -178.55, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Groceries' },
+      { id: 'qa-tx-5', date: '2026-07-06', desc: 'Netflix', amount: -18.99, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Subscriptions' },
+      { id: 'qa-tx-6', date: '2026-06-06', desc: 'Netflix', amount: -16.49, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Subscriptions' },
+    ];
+    S.accounts = { Chequing: { currency: 'CAD' }, Amex: { currency: 'CAD' } };
+    await DB.putTx(rows);
+    S.tx = rows; S.txIds = new Set(rows.map(t => t.id));
+    await DB.kvSet('accounts', S.accounts);
+    renderAll();
+  });
   await page.waitForTimeout(900);
   assert(await page.locator('#view-overview .hero .big').isVisible(), 'Populated overview did not render');
 

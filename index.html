@@ -715,6 +715,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
 <input type="file" id="csvInput" accept=".csv,text/csv" multiple hidden>
 <input type="file" id="imgInput" accept="image/*" multiple hidden>
 <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+<input type="file" id="jsonInput" accept="application/json,.json" hidden>
 
 <script>
 'use strict';
@@ -985,6 +986,19 @@ function rateTooltip(cur) {
 
 /* ---------- categorization & jars ---------- */
 function merchantKey(desc) { return desc.toLowerCase().replace(/[#*0-9]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40); }
+function subscriptionMonthlyAmount(sub) {
+  const baseAmt = toBase(sub.amount, sub.currency);
+  if (sub.period === 'yearly') return baseAmt / 12;
+  if (sub.period === 'weekly') return baseAmt * 4.33;
+  return baseAmt;
+}
+function manualSubscriptionKeys() {
+  return new Set(S.subscriptions.map(s => merchantKey(s.name)));
+}
+function detectedRecurringOnly() {
+  const manualKeys = manualSubscriptionKeys();
+  return detectRecurring().filter(r => !manualKeys.has(merchantKey(r.name)));
+}
 function categorize(desc) {
   const mk = merchantKey(desc);
   if (S.rules[mk]) return S.rules[mk];
@@ -1088,7 +1102,9 @@ function guessColumns(header, dataRows) {
 const importQueue = []; let importing = false;
 async function handleFiles(files) {
   for (const f of files) {
-    if (/\.csv$/i.test(f.name) || f.type.includes('csv')) importQueue.push({ type: 'csv', file: f });
+    if (/\.json$/i.test(f.name) || f.type.includes('json')) {
+      try { await importJsonBackup(f); } catch (e) { toast(`Import failed: ${e.message}`); }
+    } else if (/\.csv$/i.test(f.name) || f.type.includes('csv')) importQueue.push({ type: 'csv', file: f });
     else if (f.type.startsWith('image/')) importQueue.push({ type: 'img', file: f });
     else toast(`Skipped ${f.name} (unsupported)`);
   }
@@ -1395,19 +1411,13 @@ function renderSubscriptions() {
   
   // Calculate manual totals
   let manualMonthly = 0;
-  S.subscriptions.forEach(s => {
-    const baseAmt = toBase(s.amount, s.currency);
-    if (s.period === 'monthly') manualMonthly += baseAmt;
-    else if (s.period === 'yearly') manualMonthly += baseAmt / 12;
-    else if (s.period === 'weekly') manualMonthly += baseAmt * 4.33;
-  });
+  S.subscriptions.forEach(s => { manualMonthly += subscriptionMonthlyAmount(s); });
   
-  // Calculate auto-detected totals
-  const recurring = detectRecurring();
+  // Auto-detected totals exclude merchants already tracked manually
+  const recurring = detectedRecurringOnly();
   const detMonthly = recurring.reduce((s, r) => s + r.monthly, 0);
   
   const totalMonthly = manualMonthly + detMonthly;
-  
   $('#subTotalAmt').textContent = baseFmt(totalMonthly) + '/mo';
   $('#subTotalBreakdown').textContent = `${baseFmt(manualMonthly)} manual · ${baseFmt(detMonthly)} auto-detected (annual total: ${baseFmt(totalMonthly * 12)})`;
   
@@ -1719,11 +1729,9 @@ function renderOverview() {
   const el = $('#view-overview');
   if (!S.tx.length) {
     el.innerHTML = `<div class="card empty"><span class="serif">A quiet ledger.</span>
-      Import a CSV statement, scan a receipt, or add a transaction above. Or try it with sample data.
-      <div class="actions"><button class="primary" id="loadSampleBtn">Load sample data</button></div>
-      <div class="sub" style="margin-top:14px">Everything stays on this device. No cloud, no account.</div></div>
+      Import a CSV statement, scan a receipt, or add a transaction with ＋ above.
+      <div class="sub" style="margin-top:14px">Everything stays on this device. Back up anytime under Settings → Export JSON.</div></div>
       <button class="fab" id="overviewScanBtn" type="button" aria-label="Scan receipt">Scan receipt</button>`;
-    $('#loadSampleBtn').onclick = () => { if (!confirm('Load demo transactions? They sync to every connected device.')) return; loadSampleData(); };
     $('#overviewScanBtn').onclick = () => $('#cameraInput').click();
     return;
   }
@@ -1739,7 +1747,8 @@ function renderOverview() {
   const donutEntries = cats.map(([c, v]) => ({ label: c, value: v, color: catColor(c), fmt: baseFmt(v) }));
   if (restSum > 0) donutEntries.push({ label: 'Everything else', value: restSum, color: CAT_COLORS.Other, fmt: baseFmt(restSum) });
   const months = Object.keys(agg).sort().slice(-6);
-  const recurring = detectRecurring(); const recTotal = recurring.reduce((s, r) => s + r.monthly, 0);
+  const recurring = detectedRecurringOnly(); const recTotal = recurring.reduce((s, r) => s + r.monthly, 0);
+  const manualRecurring = S.subscriptions.reduce((s, sub) => s + subscriptionMonthlyAmount(sub), 0);
   const days = dailySeries();
 
   el.innerHTML = `
@@ -1762,11 +1771,14 @@ function renderOverview() {
     </div>
     <div class="card">
       <div class="cardhead"><div class="label">Recurring & subscriptions</div><button class="linkbtn" onclick="switchView('subscriptions'); window.scrollTo({ top: 0 });">Manage</button></div>
-      ${recurring.length ? `<div class="reclist">${recurring.slice(0, 8).map((r, i) => `
+      ${recurring.length || S.subscriptions.length ? `<div class="reclist">${[
+        ...S.subscriptions.slice(0, 4).map(s => ({ name: s.name, monthly: subscriptionMonthlyAmount(s), cat: s.category, manual: true })),
+        ...recurring.slice(0, 8 - Math.min(S.subscriptions.length, 4)).map(r => ({ name: r.name, monthly: r.monthly, cat: r.cat, manual: false, hike: r.hike, count: r.count })),
+      ].slice(0, 8).map((r, i) => `
         <div class="recrow" data-i="${i}"><span class="dot" style="background:${catColor(r.cat)}"></span>
-          <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly · ${esc(r.cat)}</span></span>
-          <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span></div>`).join('')}</div>`
-        : '<div class="sub">No recurring charges detected yet. Needs 2+ months of a merchant to spot a pattern.</div>'}
+          <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.manual ? 'manual recurring' : `${r.count}× monthly · ${esc(r.cat)}`}</span></span>
+          <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.monthly * 12)}/yr</span></span></div>`).join('')}</div>`
+        : '<div class="sub">No recurring charges yet. Add one under Recurring or import a few months of activity.</div>'}
     </div>
     <div class="card">
       <div class="label">Accounts</div>
@@ -1780,7 +1792,7 @@ function renderOverview() {
   $('#overviewScanBtn').onclick = () => $('#cameraInput').click();
   attachSparkScrub(days);
   $$('#view-overview .acctrow').forEach(row => { row.onclick = () => gotoTransactions({ account: row.dataset.acct }); });
-  $$('#view-overview .recrow').forEach(row => { row.onclick = () => openRecurringDetail(recurring[+row.dataset.i]); });
+  $$('#view-overview .recrow').forEach(row => { row.onclick = () => { switchView('subscriptions'); window.scrollTo({ top: 0 }); }; });
   $$('#view-overview .donutlegend .row[data-cat]').forEach(row => { row.onclick = () => gotoTransactions({ category: row.dataset.cat, month: mk }); });
 }
 
@@ -2107,7 +2119,13 @@ function openBudgetEditor(category) {
 
 /* ---------- settings ---------- */
 function showSettings() {
-  const body = $('#settingsBody'); const curs = ['USD', 'CAD'];
+  const body = $('#settingsBody');
+  const curs = [...new Set([
+    ...CURRENCIES.filter(c => c !== 'EUR'),
+    ...S.rates.map(r => r.cur),
+    ...S.tx.map(t => t.currency),
+    ...Object.values(S.accounts).map(a => a.currency),
+  ])].filter(c => c && c !== 'EUR').sort();
   body.innerHTML = `
     <h2>Settings</h2><div class="sub">All data stays on this device.</div>
     <div class="formrow"><label>Base currency</label><select id="sBase" style="flex:none">${CURRENCIES.map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
@@ -2125,14 +2143,15 @@ function showSettings() {
     <div id="syncPanel" aria-live="polite"></div>
     <section class="settings-import" aria-labelledby="importHeading">
       <h2 id="importHeading">Import</h2>
-      <div class="sub">Add a CSV statement or receipt without cluttering your ledger.</div>
+      <div class="sub">Add a CSV statement, receipt photo, or a full JSON backup.</div>
       <div class="dropzone" id="sDropzone">
-        <span>Drop a CSV or receipt here</span>
-        <div class="actions"><button class="ghost" id="pickCsvBtn" type="button">Import CSV</button><button class="ghost" id="pickImgBtn" type="button">Upload receipt</button></div>
+        <span>Drop a CSV, receipt, or JSON backup here</span>
+        <div class="actions"><button class="ghost" id="pickCsvBtn" type="button">Import CSV</button><button class="ghost" id="pickImgBtn" type="button">Upload receipt</button><button class="ghost" id="sImport" type="button">Import JSON</button></div>
       </div>
     </section>
-    <h2 style="margin-top:18px">Data</h2>
-    <div class="formrow" style="margin-top:10px"><button class="ghost" id="sSample">Load sample data</button><button class="ghost" id="sRemoveSample">Remove sample data</button><button class="ghost" id="sExport">Export JSON</button><button class="ghost danger" id="sWipe">Wipe all data</button></div>
+    <h2 style="margin-top:18px">Backup</h2>
+    <div class="sub">Export a full snapshot of your ledger, or restore one from another device.</div>
+    <div class="formrow" style="margin-top:10px"><button class="ghost" id="sExport">Export JSON</button><button class="ghost" id="sImportBackup">Import JSON</button><button class="ghost danger" id="sWipe">Wipe all data</button></div>
     <div class="formrow" style="justify-content:flex-end; margin-top:16px"><button class="primary" id="sClose">Done</button></div>`;
   renderSyncPanel();
   $('#settingsModal').classList.add('open');
@@ -2142,7 +2161,12 @@ function showSettings() {
   const sDropzone = $('#sDropzone');
   ['dragover', 'dragenter'].forEach(ev => sDropzone.addEventListener(ev, (e) => { e.preventDefault(); sDropzone.classList.add('drag'); }));
   ['dragleave', 'drop'].forEach(ev => sDropzone.addEventListener(ev, (e) => { e.preventDefault(); sDropzone.classList.remove('drag'); }));
-  sDropzone.addEventListener('drop', (e) => handleFiles([...e.dataTransfer.files]));
+  sDropzone.addEventListener('drop', (e) => {
+    const files = [...e.dataTransfer.files];
+    const json = files.find(f => /\.json$/i.test(f.name) || f.type.includes('json'));
+    if (json) importJsonBackup(json).catch(err => toast(`Import failed: ${err.message}`));
+    else handleFiles(files);
+  });
   $('#sBase').onchange = async () => { S.settings.base = $('#sBase').value; await DB.kvSet('settings', S.settings); renderAll(); };
   $$('.rateinp').forEach(inp => inp.onchange = async () => { const cur = inp.dataset.rcur, v = parseFloat(inp.value); S.rates = S.rates.filter(r => r.cur !== cur); if (!isNaN(v) && v > 0) S.rates.push({ cur, eurPer: v, date: todayISO() }); await DB.kvSet('rates', S.rates); renderAll(); showSettings(); });
   $('#sAddAccount').onclick = async () => {
@@ -2157,13 +2181,9 @@ function showSettings() {
     if (inUse) { toast('Remove or rename its linked activity first'); return; }
     delete S.accounts[name]; await DB.kvSet('accounts', S.accounts); renderAll(); showSettings(); toast(`${name} removed`);
   });
-  $('#sSample').onclick = () => { if (!confirm('Load demo transactions (Northwind Studio, Loblaws, etc.)? They sync to every connected device.')) return; $('#settingsModal').classList.remove('open'); loadSampleData(); };
-  $('#sRemoveSample').onclick = async () => { await removeSampleData(); renderSyncPanel(); };
-  $('#sExport').onclick = async () => {
-    const payload = { exportedAt: new Date().toISOString(), settings: S.settings, rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards, transactions: S.tx };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ledger-export-${todayISO()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  };
+  $('#sExport').onclick = exportJsonBackup;
+  $('#sImport').onclick = triggerJsonImport;
+  $('#sImportBackup').onclick = triggerJsonImport;
   $('#sWipe').onclick = async () => {
     if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, recurring expenses, and credit cards? This cannot be undone.')) return;
     await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], settings: { base: S.settings.base, theme: S.settings.theme } });
@@ -2234,74 +2254,38 @@ async function renderSyncPanel() {
 }
 document.addEventListener('syncstatus', () => { if ($('#settingsModal').classList.contains('open')) renderSyncPanel(); });
 
-/* ---------- sample data ---------- */
-async function removeSampleData() {
-  const ids = S.tx.filter(t => t.source === 'sample').map(t => t.id);
-  const subIds = S.subscriptions.filter(s => s.source === 'sample').map(s => s.id);
-  if (!ids.length && !subIds.length) { toast('No sample data found'); return; }
-  if (!confirm(`Remove sample data? Real data is kept. Sync after to update other devices.`)) return;
-  if (ids.length) await deleteTransactions(ids);
-  if (subIds.length) {
-    S.subscriptions = S.subscriptions.filter(s => s.source !== 'sample');
-    await DB.kvSet('subscriptions', S.subscriptions);
-  }
-  toast(`Removed sample data — tap Sync now on each device`);
+/* ---------- JSON backup ---------- */
+function triggerJsonImport() { $('#jsonInput')?.click(); }
+async function exportJsonBackup() {
+  const payload = { exportedAt: new Date().toISOString(), settings: S.settings, rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards, transactions: S.tx };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ledger-export-${todayISO()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
-function loadSampleData() {
-  const rows = buildSampleData();
-  const added = [];
-  for (const t of rows) { t.id = t.id || txHash(t); if (!S.txIds.has(t.id)) { added.push(t); S.txIds.add(t.id); } }
-  S.tx.push(...added);
-  const accts = { 'Chequing': 'CAD', 'Amex': 'CAD', 'WS Invest': 'CAD', 'EU Bank': 'EUR', 'Freelance USD': 'USD' };
-  Object.entries(accts).forEach(([n, c]) => { if (!(n in S.accounts)) S.accounts[n] = { currency: c }; });
-  S.budgets = Object.assign({ Groceries: 600, Dining: 300, Subscriptions: 120, Transport: 150 }, S.budgets);
-  
-  // Seed sample manual subscriptions
-  const sampleSubs = [
-    { id: 'sub_sample_netflix', name: 'Netflix', amount: 18.99, currency: 'CAD', period: 'monthly', date: '2026-08-18', category: 'Subscriptions', account: 'Amex', source: 'sample' },
-    { id: 'sub_sample_spotify', name: 'Spotify Premium', amount: 11.99, currency: 'CAD', period: 'monthly', date: '2026-08-06', category: 'Subscriptions', account: 'Amex', source: 'sample' },
-    { id: 'sub_sample_adobe', name: 'Adobe Creative Cloud', amount: 59.99, currency: 'USD', period: 'monthly', date: '2026-08-09', category: 'Subscriptions', account: 'Freelance USD', source: 'sample' },
-    { id: 'sub_sample_claude', name: 'Anthropic Claude', amount: 20.00, currency: 'USD', period: 'monthly', date: '2026-08-12', category: 'Subscriptions', account: 'Freelance USD', source: 'sample' }
-  ];
-  const existingSubIds = new Set(S.subscriptions.map(s => s.id));
-  const subsToAdd = sampleSubs.filter(s => !existingSubIds.has(s.id));
-  if (subsToAdd.length) {
-    S.subscriptions.push(...subsToAdd);
-    DB.kvSet('subscriptions', S.subscriptions);
+async function importJsonBackup(file) {
+  const payload = JSON.parse(await file.text());
+  if (!payload || !Array.isArray(payload.transactions)) throw new Error('Not a Ledger export file');
+  if (!confirm(`Replace local data with ${payload.transactions.length} transaction(s) from ${file.name}?`)) return;
+  await DB.wipe();
+  _meta = null;
+  S.tx = payload.transactions; S.txIds = new Set(S.tx.map(t => t.id));
+  S.settings = { ...S.settings, ...(payload.settings || {}), theme: S.settings.theme };
+  S.rates = payload.rates || []; S.budgets = payload.budgets || {}; S.rules = payload.rules || {};
+  S.mappings = payload.mappings || {}; S.accounts = payload.accounts || {};
+  S.jars = payload.jars?.length ? payload.jars : structuredClone(DEFAULT_JARS);
+  S.catJar = payload.catJar || { ...DEFAULT_CATJAR };
+  S.jarMoves = payload.jarMoves || []; S.jarAdjustments = payload.jarAdjustments || [];
+  S.subscriptions = payload.subscriptions || []; S.creditCards = payload.creditCards || [];
+  await DB.putTx(S.tx, false);
+  await DB.kvSet('settings', S.settings, false);
+  for (const [key, val] of Object.entries({ rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards })) {
+    await DB.kvSet(key, val, false);
   }
-
-  DB.putTx(added); DB.kvSet('accounts', S.accounts); DB.kvSet('budgets', S.budgets);
-  toast(`Sample data loaded: ${added.length} transactions, ${subsToAdd.length} subscriptions`); renderAll();
-}
-function buildSampleData() {
-  const months = ['2026-05', '2026-06', '2026-07']; const out = [];
-  const add = (date, desc, amount, currency, account, transfer) => { const category = categorize(desc); out.push({ date, desc, amount, currency, account, source: 'sample', category, transfer: transfer ?? (category === 'Transfer' || category === 'Investments') }); };
-  months.forEach((m, i) => {
-    add(`${m}-01`, 'Payroll - Northwind Studio', 4200, 'CAD', 'Chequing');
-    add(`${m}-02`, 'Stripe payout - freelance invoices', 1850 + i * 120, 'USD', 'Freelance USD');
-    add(`${m}-01`, 'Rent - Maple Court Apartments', -1800, 'CAD', 'Chequing');
-    add(`${m}-03`, 'Loblaws Market', -[142.18, 96.40, 178.55][i], 'CAD', 'Amex');
-    add(`${m}-11`, 'Metro Grocery', -[88.40, 124.10, 61.75][i], 'CAD', 'Amex');
-    add(`${m}-17`, 'Costco Wholesale', -[211.05, 148.90, 263.40][i], 'CAD', 'Amex');
-    add(`${m}-05`, 'Starbucks Coffee', -[6.85, 11.20, 5.40][i], 'CAD', 'Amex');
-    add(`${m}-14`, 'Uber Eats', -[34.20, 22.75, 48.60][i], 'CAD', 'Amex');
-    add(`${m}-22`, 'Cineplex Odeon', -29.50, 'CAD', 'Amex');
-    add(`${m}-08`, 'Presto Transit', -45.00, 'CAD', 'Amex');
-    add(`${m}-18`, `Netflix`, -(i < 2 ? 16.49 : 18.99), 'CAD', 'Amex');
-    add(`${m}-06`, 'Spotify Premium', -11.99, 'CAD', 'Amex');
-    add(`${m}-09`, 'Adobe Creative Cloud', -59.99, 'USD', 'Freelance USD');
-    add(`${m}-12`, 'Anthropic Claude', -20.00, 'USD', 'Freelance USD');
-    add(`${m}-25`, 'REWE Supermarkt', -[63.15, 41.80, 88.30][i], 'EUR', 'EU Bank');
-    add(`${m}-20`, 'Vodafone Mobil', -29.99, 'EUR', 'EU Bank');
-    add(`${m}-28`, 'Amex payment - thank you', 900, 'CAD', 'Chequing', true);
-    add(`${m}-28`, 'Amex payment received', -900, 'CAD', 'Amex', true);
-    add(`${m}-15`, 'Transfer to Wealthsimple Invest', -600, 'CAD', 'Chequing', true);
-    add(`${m}-15`, 'Contribution - TFSA', 600, 'CAD', 'WS Invest', true);
-  });
-  add('2026-07-11', 'Maple Cafe', -20.91, 'CAD', 'Amex');
-  add('2026-06-24', 'Air Canada - flight to Berlin', -684.00, 'CAD', 'Amex');
-  add('2026-07-09', 'Airbnb Lisbon', -420.00, 'EUR', 'EU Bank');
-  return out;
+  await initDefaults();
+  applyTheme(S.settings.theme || 'dark');
+  nudgeSync();
+  $('#settingsModal').classList.remove('open');
+  renderAll();
+  toast(`Imported ${S.tx.length} transactions`);
 }
 
 /* ---------- boot ---------- */
@@ -2372,6 +2356,12 @@ $('#shortcutsBtn').onclick = () => {
 $('#addTxBtn').onclick = () => openTxModal(null);
 $('#addSubBtn').onclick = () => openSubscriptionModal(null);
 ['csvInput', 'imgInput', 'cameraInput'].forEach(id => { $('#' + id).onchange = (e) => { handleFiles([...e.target.files]); e.target.value = ''; }; });
+$('#jsonInput')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0]; e.target.value = '';
+  if (!file) return;
+  try { await importJsonBackup(file); }
+  catch (err) { toast(`Import failed: ${err.message}`); }
+});
 document.addEventListener('click', (e) => { const tr = e.target.closest('#txTable tbody tr'); if (tr && !e.target.closest('.catselect,.rowchk,.jartag,.selcol')) { const t = S.tx.find(x => x.id === tr.dataset.id); if (t) openTxModal(t); } });
 $$('.modal-backdrop').forEach(m => m.addEventListener('click', (e) => {
   if (e.target === m) { m.classList.remove('open'); if (typeof flushDeferredRender === 'function') flushDeferredRender(); }
