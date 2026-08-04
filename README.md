@@ -26,6 +26,8 @@ Off by default. When on, each device encrypts a full snapshot with a passphrase 
 
 After that it syncs on open, on focus, and a few seconds after any edit. There's also a manual **Sync now**.
 
+If you want the Dropbox app key to survive preview rebuilds or branch checkouts, you can also serve a small `sync-config.json` next to the app with `{ "appKey": "..." }`. The app will use it as a bootstrap when the saved browser state is empty.
+
 **Keep a passphrase you won't lose.** It never leaves your devices and there is no reset - if you both forget it, the Dropbox copy is unrecoverable. Export JSON is the escape hatch; keep one somewhere safe.
 
 ### How conflicts resolve
@@ -40,3 +42,7 @@ Two people editing *the same transaction* within one sync window: the later edit
 **Not synced:** receipt images (the transaction and its data sync; the photo stays on the device that scanned it), and your light/dark theme (deliberately per-device). Sync needs IndexedDB, so it's unavailable in private-browsing modes.
 
 **Wipe all data** clears this device and unlinks it from Dropbox. The other device is untouched.
+
+## Design handoff
+
+The production design system lives in [`design-assets/`](design-assets/): concept explorations, light/dark tokens, component snippets, responsive mockups, and the printable style guide. See [`IMPLEMENTATION_NOTES.txt`](IMPLEMENTATION_NOTES.txt) for the hover/refresh root-cause report and QA checklist. Run `tests/ui-qa.js` with Playwright available on `NODE_PATH`; set `LEDGER_QA_BROWSER` to `firefox` or `webkit` for the cross-engine checks.

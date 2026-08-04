@@ -1,0 +1,77 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "meta": {
+    "product": "Ledger",
+    "version": "2.0.0",
+    "baselineGrid": "4px"
+  },
+  "color": {
+    "light": {
+      "background": { "$value": "#F2EEE7", "$type": "color" },
+      "surface": { "$value": "#FFFDF8", "$type": "color" },
+      "surfaceRaised": { "$value": "#EBE5DC", "$type": "color" },
+      "text": { "$value": "#19231F", "$type": "color" },
+      "textMuted": { "$value": "#626B65", "$type": "color" },
+      "border": { "$value": "#D9D1C5", "$type": "color" },
+      "brand": { "$value": "#B94A34", "$type": "color" },
+      "brandHover": { "$value": "#9C3725", "$type": "color" },
+      "brandSoft": { "$value": "#F8DED4", "$type": "color" },
+      "positive": { "$value": "#24745A", "$type": "color" },
+      "positiveSoft": { "$value": "#DBECE4", "$type": "color" },
+      "warning": { "$value": "#A46E19", "$type": "color" },
+      "warningSoft": { "$value": "#F5E7C7", "$type": "color" }
+    },
+    "dark": {
+      "background": { "$value": "#101714", "$type": "color" },
+      "surface": { "$value": "#17201C", "$type": "color" },
+      "surfaceRaised": { "$value": "#202B26", "$type": "color" },
+      "text": { "$value": "#F6F0E7", "$type": "color" },
+      "textMuted": { "$value": "#AEB8B1", "$type": "color" },
+      "border": { "$value": "#34413A", "$type": "color" },
+      "brand": { "$value": "#F27B5E", "$type": "color" },
+      "brandHover": { "$value": "#FF9074", "$type": "color" },
+      "brandSoft": { "$value": "#3B2923", "$type": "color" },
+      "positive": { "$value": "#73C9A6", "$type": "color" },
+      "positiveSoft": { "$value": "#1E3A30", "$type": "color" },
+      "warning": { "$value": "#E2B65F", "$type": "color" },
+      "warningSoft": { "$value": "#3C3320", "$type": "color" }
+    }
+  },
+  "typography": {
+    "displayFamily": { "$value": "Fraunces, ui-serif, Georgia, serif", "$type": "fontFamily" },
+    "bodyFamily": { "$value": "Instrument Sans, system-ui, sans-serif", "$type": "fontFamily" },
+    "numericFamily": { "$value": "IBM Plex Mono, ui-monospace, monospace", "$type": "fontFamily" },
+    "baseSize": { "$value": "15px", "$type": "dimension" },
+    "bodyLineHeight": { "$value": 1.5, "$type": "number" },
+    "displayTracking": { "$value": "-0.04em", "$type": "dimension" }
+  },
+  "space": {
+    "1": { "$value": "4px", "$type": "dimension" },
+    "2": { "$value": "8px", "$type": "dimension" },
+    "3": { "$value": "12px", "$type": "dimension" },
+    "4": { "$value": "16px", "$type": "dimension" },
+    "5": { "$value": "20px", "$type": "dimension" },
+    "6": { "$value": "24px", "$type": "dimension" },
+    "8": { "$value": "32px", "$type": "dimension" },
+    "10": { "$value": "40px", "$type": "dimension" },
+    "12": { "$value": "48px", "$type": "dimension" },
+    "16": { "$value": "64px", "$type": "dimension" }
+  },
+  "radius": {
+    "control": { "$value": "11px", "$type": "dimension" },
+    "surface": { "$value": "18px", "$type": "dimension" },
+    "dialog": { "$value": "24px", "$type": "dimension" }
+  },
+  "motion": {
+    "fast": { "$value": "160ms", "$type": "duration" },
+    "standard": { "$value": "220ms", "$type": "duration" },
+    "slow": { "$value": "300ms", "$type": "duration" },
+    "easeOut": { "$value": [0.22, 1, 0.36, 1], "$type": "cubicBezier" }
+  },
+  "layout": {
+    "contentMax": { "$value": "1240px", "$type": "dimension" },
+    "mobile": { "$value": "320px", "$type": "dimension" },
+    "tablet": { "$value": "760px", "$type": "dimension" },
+    "desktop": { "$value": "1100px", "$type": "dimension" }
+  }
+}

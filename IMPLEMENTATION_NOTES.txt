@@ -1,0 +1,118 @@
+LEDGER 2.0 — IMPLEMENTATION AND BUG-FIX NOTES
+================================================
+
+Outcome
+-------
+The production app now uses the selected "Hearth" direction: warm editorial
+typography, dark green/cream surfaces, coral brand actions, green positive
+values, amber warnings, subtle grain, and an asymmetric desktop overview.
+Both light and dark themes use the same semantic tokens.
+
+Bug reproduction and root cause
+-------------------------------
+1. Load sample data and open Overview at desktop width.
+2. Move the pointer across the net-position graph and across surrounding cards.
+3. Before the fix, the graph detail area changed height as days exposed different
+   transaction counts. Whole-card translateY hover and first-table-cell transforms
+   amplified the movement.
+4. Enable Dropbox sync, move away from the tab, then return. Before the fix,
+   every focus-triggered sync called applySnapshot() and renderAll(), even when
+   the merged snapshot contained no content changes. This looked like a refresh.
+5. With the PWA installed, deploy a new index.html and manually refresh. Before
+   the fix, the cache-first service worker could return stale HTML.
+
+Concrete fixes
+--------------
+- The chart detail panel now has a stable 190px viewport with internal overflow.
+- Cards change border and shadow only. Table cells no longer translate on hover.
+- Interactive movement is limited to controls and uses transform/opacity.
+- sync.js compares canonical content before applying a snapshot. An unchanged
+  focus sync updates metadata without remounting the interface.
+- sw.js v16 uses network-first for navigation and updates the cached HTML. Static
+  assets remain available offline and refresh in the background.
+- The service worker no longer ignores URL search parameters for every asset.
+
+Design tokens and usage
+-----------------------
+Source: design-assets/design-tokens.json
+CSS implementation: the :root blocks at the top of index.html
+
+Light text/background contrast:
+- #19231F on #F2EEE7: 13.95:1
+- #626B65 on #F2EEE7: 4.77:1
+- #B94A34 button on #FFFAF4 label: 4.94:1
+- #24745A on #FFFDF8: 5.55:1
+
+Dark text/background contrast:
+- #F6F0E7 on #101714: 16.05:1
+- #AEB8B1 on #101714: 8.91:1
+- #F27B5E on #17201C: 6.17:1
+- #73C9A6 on #17201C: 8.44:1
+
+Typography
+----------
+- Display: Fraunces variable, 600–700, tight tracking (-0.04em).
+- UI/body: Instrument Sans variable, 400–700, 15px / 1.5 base.
+- Financial values: IBM Plex Mono, tabular figures enabled.
+- Keep prose to roughly 62–65 characters per line.
+
+Spacing and redlines
+--------------------
+- 4px baseline; primary rhythm uses 8, 12, 16, 20, 24, 32, 48, 64.
+- Control height: minimum 42px desktop; mobile navigation targets 48px.
+- Control radius: 11px. Surface radius: 18px. Dialog radius: 24px.
+- Content maximum: 1240px.
+- Mobile: 320–759px, fixed bottom navigation.
+- Tablet: 760–1099px, top navigation and single-column content flow.
+- Desktop: 1100px+, two-column overview composition.
+- Validated viewports: 390x844 and 1440x1000. CSS remains fluid at the requested
+  320, 375, 414, 768, 1024, and 1440 widths.
+
+Interaction rules
+-----------------
+- Fast controls: 160ms. Surface feedback: 200–220ms.
+- Default easing: cubic-bezier(.22, 1, .36, 1).
+- Focus: 3px visible coral ring with 3px offset.
+- Active buttons: translateY(1px) scale(.99).
+- Reduced motion disables decorative animation and smooth scrolling.
+- Never animate width, height, margin, top, or left for hover feedback.
+
+QA
+--
+Automated browser checks:
+  NODE_PATH=<path-to-playwright-node_modules> node tests/ui-qa.js
+  LEDGER_QA_BROWSER=firefox NODE_PATH=<path> node tests/ui-qa.js
+  LEDGER_QA_BROWSER=webkit NODE_PATH=<path> node tests/ui-qa.js
+
+The check loads sample data and verifies:
+- card, navigation, and button bounds do not shift on hover;
+- hover does not cause document navigation;
+- refresh preserves all transactions;
+- desktop and mobile navigation switch correctly;
+- 320, 375, 414, 768, 1024, and 1440px layouts have no horizontal overflow;
+- both themes render;
+- dialogs close with Escape and the service worker controls the refreshed page;
+- no page or console errors occur.
+
+The suite passed in Chromium, Firefox, and WebKit on 2026-07-24.
+
+Manual cross-browser checklist:
+- Latest Chrome, Firefox, Safari, Edge: hover cards, scrub chart, change theme,
+  switch every view, edit a transaction, close dialogs via backdrop.
+- iOS Safari / Android Chrome: test 320/375/414 widths, safe-area padding,
+  fixed bottom bar, receipt picker, and keyboard focus traversal.
+- DevTools Performance: confirm no Layout Shift records during card hover.
+- Application > Service Workers: offline reload should open the last cached app;
+  online reload should request current HTML.
+
+Handoff inventory
+-----------------
+- index.html: production UI and component states.
+- sync.js / sw.js: refresh-bug fixes.
+- design-assets/design-tokens.json: portable tokens.
+- design-assets/component-snippets.css: standalone component reference.
+- design-assets/concept-explorations.svg: three light/dark concept directions.
+- design-assets/ledger-mark.svg: exportable vector app mark.
+- design-assets/mockups/: responsive production screenshots.
+- design-assets/style-guide.html and style-guide.pdf: printable visual spec.
+- tests/ui-qa.js: repeatable Chromium acceptance test.

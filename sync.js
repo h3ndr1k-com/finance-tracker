@@ -6,19 +6,41 @@
 
 const SYNC_CFG_KEY = 'syncCfg';   // never synced: holds tokens + salt
 const SYNC_PASS_KEY = 'syncPass';
+const SYNC_BOOTSTRAP_URL = './sync-config.json';
 const REMOTE_PATH = '/ledger.bin';
 const PBKDF2_ITER = 600000;
 
 let syncCfg = null;
+let syncBootstrap = undefined;
 let passphrase = null;
 let syncTimer = null;
 let inflight = null, pending = false;
 let syncStatus = { state: 'off', detail: '' };
 let deferredRender = false;
+let syncFocusPassphrase = false;
+
+async function getSyncBootstrap() {
+  if (syncBootstrap !== undefined) return syncBootstrap;
+  syncBootstrap = {};
+  try {
+    const r = await fetch(SYNC_BOOTSTRAP_URL, { cache: 'no-store' });
+    if (!r.ok) return syncBootstrap;
+    const j = await r.json();
+    if (j && typeof j === 'object') syncBootstrap = j;
+  } catch {
+    // Optional helper file. Missing or invalid bootstrap is not an error.
+  }
+  return syncBootstrap;
+}
 
 async function getSyncCfg() {
   if (syncCfg) return syncCfg;
   syncCfg = await DB.kvGet(SYNC_CFG_KEY, { enabled: false, appKey: '', refreshToken: null, accessToken: null, expiresAt: 0, saltB64: null, rememberPass: false });
+  const bootstrap = await getSyncBootstrap();
+  if (bootstrap.appKey && !syncCfg.appKey) {
+    syncCfg.appKey = String(bootstrap.appKey).trim();
+    await saveSyncCfg();
+  }
   return syncCfg;
 }
 async function saveSyncCfg() { await DB.kvSet(SYNC_CFG_KEY, syncCfg, false); }
@@ -43,7 +65,8 @@ async function buildSnapshot() {
     v: 2,
     settings: { base: S.settings.base },        // theme is device-local, never leaves
     rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings,
-    accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves,
+    accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments,
+    subscriptions: S.subscriptions, creditCards: S.creditCards,
     transactions: S.tx,
     meta: { txTomb: { ...m.txTomb }, kv: JSON.parse(JSON.stringify(m.kv)) },
   };
@@ -116,6 +139,23 @@ function mergeSnapshots(a, b) {
 }
 
 async function applySnapshot(snap) {
+  const comparable = (source) => {
+    const out = {};
+    for (const key of Object.keys(SYNC_SCHEMA)) {
+      if (key === 'settings') out.settings = { base: source.settings?.base };
+      else out[key] = source[key];
+    }
+    out.transactions = [...(source.transactions || [])].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    return JSON.stringify(out);
+  };
+  const current = { ...S, settings: { base: S.settings.base }, transactions: S.tx };
+  const contentChanged = comparable(current) !== comparable(snap);
+  if (!contentChanged) {
+    const m = await getMeta();
+    m.txTomb = snap.meta.txTomb; m.kv = snap.meta.kv;
+    await saveMeta();
+    return false;
+  }
   const nextIds = new Set(snap.transactions.map(t => t.id));
   const toDelete = S.tx.map(t => t.id).filter(id => !nextIds.has(id));
   if (toDelete.length) await DB.deleteTx(toDelete, false);
@@ -136,8 +176,9 @@ async function applySnapshot(snap) {
   await saveMeta();
 
   // Never yank an open form out from under whoever is typing in it.
-  if (document.querySelector('.modal-backdrop.open')) { deferredRender = true; return; }
+  if (document.querySelector('.modal-backdrop.open')) { deferredRender = true; return true; }
   renderAll();
+  return true;
 }
 
 /* ---------- crypto ----------
@@ -337,8 +378,14 @@ async function initSync() {
   if (cfg.rememberPass) passphrase = await DB.kvGet(SYNC_PASS_KEY, null);
 
   const params = new URLSearchParams(location.search);
+  let connectedThisVisit = false;
   if (params.get('code')) {
-    try { await finishDropboxAuth(params.get('code')); history.replaceState({}, '', redirectUri()); toast('Dropbox connected'); }
+    try {
+      await finishDropboxAuth(params.get('code'));
+      connectedThisVisit = true;
+      history.replaceState({}, '', redirectUri());
+      toast('Dropbox connected. Enter the shared passphrase to start syncing.');
+    }
     catch (e) { toast(e.message); history.replaceState({}, '', redirectUri()); }
   }
   document.addEventListener('visibilitychange', () => {
@@ -353,7 +400,11 @@ async function initSync() {
     if (syncCfg?.enabled && syncCfg.refreshToken && passphrase) syncNow();
   });
   if (syncCfg.enabled && syncCfg.refreshToken) {
-    setStatus(passphrase ? 'idle' : 'needs-pass', passphrase ? '' : 'Passphrase needed');
+    setStatus(passphrase ? 'idle' : 'needs-pass', passphrase ? '' : 'Enter the shared passphrase to sync');
     if (passphrase) syncNow();
+    else if (connectedThisVisit && typeof showSettings === 'function') {
+      syncFocusPassphrase = true;
+      showSettings();
+    }
   } else setStatus('off');
 }
