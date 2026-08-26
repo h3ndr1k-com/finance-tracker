@@ -408,6 +408,8 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .recrow .num { flex: 0 0 auto; margin-left: auto; }
 .bizselect { background: transparent; border: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; max-width: 140px; text-overflow: ellipsis; }
 .bizselect:focus { outline: 2px solid var(--accent-soft); border-radius: 6px; }
+.biz-row .biz-rename { flex: 1; min-width: 0; background: transparent; border: none; border-bottom: 1px solid var(--hairline); font: inherit; padding: 4px 0; }
+.biz-row .biz-rename:focus { outline: none; border-bottom-color: var(--accent); }
 
 .sparkwrap { position: relative; touch-action: none; cursor: crosshair; }
 .hero .sparkwrap { margin: 14px -20px 0; }
@@ -651,7 +653,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
       <input type="search" id="fSearch" placeholder="Search description…">
       <select id="fAccount"><option value="">All accounts</option></select>
       <select id="fCategory"><option value="">All categories</option></select>
-      <select id="fBusiness"><option value="">All funds</option></select>
+      <select id="fBusiness"><option value="">All</option></select>
       <input type="date" id="fFrom" title="From date">
       <input type="date" id="fTo" title="To date">
     </div>
@@ -932,16 +934,26 @@ function businessOptions(current) {
   if (match) return { names, selected: match, isCustom: false };
   return { names: [...names, cur].sort((a, b) => a.localeCompare(b)), selected: cur, isCustom: false };
 }
-async function ensureBusiness(name) {
-  const n = (name || '').trim();
-  if (!n) return '';
-  const existing = businessMatch(n, businessNames());
-  const key = existing || n;
-  if (!S.businesses[key]) {
-    S.businesses[key] = 1;
-    await DB.kvSet('businesses', S.businesses);
+async function renameBusiness(oldName, newName) {
+  const from = businessMatch(oldName, businessNames());
+  const to = (newName || '').trim();
+  if (!from || !to) return from || '';
+  if (from === to) return from;
+  if (S.businesses[to] && to !== from) { toast('That business name already exists'); return from; }
+  delete S.businesses[from];
+  S.businesses[to] = 1;
+  const touched = [];
+  let subsDirty = false;
+  for (const t of S.tx) {
+    if (businessMatch(t.business, [from])) { t.business = to; touched.push(t); }
   }
-  return key;
+  for (const s of S.subscriptions) {
+    if (businessMatch(s.business, [from])) { s.business = to; subsDirty = true; }
+  }
+  await DB.kvSet('businesses', S.businesses);
+  if (touched.length) await DB.putTx(touched);
+  if (subsDirty) await DB.kvSet('subscriptions', S.subscriptions);
+  return to;
 }
 function allCategories() {
   const custom = [...new Set([
@@ -956,16 +968,27 @@ function categoryFieldHtml(current, selectId, customId) {
   const isCustom = current && !CATEGORIES.includes(current);
   return `<select id="${selectId}">${all.map(c => `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option></select><input id="${customId}" maxlength="40" placeholder="Custom category" value="${isCustom ? esc(current) : ''}" style="display:${isCustom ? 'block' : 'none'};margin-top:8px">`;
 }
-function businessFieldHtml(current, selectId, customId) {
-  const { names, selected, isCustom } = businessOptions(current);
-  return `<select id="${selectId}"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === selected ? 'selected' : ''}>${esc(b)}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option></select><input id="${customId}" maxlength="40" placeholder="Company name" value="" style="display:none;margin-top:8px">`;
+async function ensureBusiness(name) {
+  const n = (name || '').trim();
+  if (!n) return '';
+  const existing = businessMatch(n, businessNames());
+  const key = existing || n;
+  if (!S.businesses[key]) {
+    S.businesses[key] = 1;
+    await DB.kvSet('businesses', S.businesses);
+  }
+  return key;
+}
+function businessFieldHtml(current, selectId) {
+  const { names, selected } = businessOptions(current);
+  return `<select id="${selectId}"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === selected ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`;
+}
+async function readBusiness(selectId) {
+  const raw = ($(selectId)?.value || '').trim();
+  if (raw) await ensureBusiness(raw);
+  return raw;
 }
 function wireCategoryCustom(selectId, customId) {
-  const sel = $(selectId), inp = $(customId);
-  if (!sel || !inp) return;
-  sel.onchange = () => { inp.style.display = sel.value === '__custom' ? 'block' : 'none'; if (sel.value === '__custom') inp.focus(); };
-}
-function wireBusinessCustom(selectId, customId) {
   const sel = $(selectId), inp = $(customId);
   if (!sel || !inp) return;
   sel.onchange = () => { inp.style.display = sel.value === '__custom' ? 'block' : 'none'; if (sel.value === '__custom') inp.focus(); };
@@ -973,12 +996,6 @@ function wireBusinessCustom(selectId, customId) {
 function readCategory(selectId, customId) {
   const sel = $(selectId);
   return sel.value === '__custom' ? $(customId).value.trim() : sel.value;
-}
-async function readBusiness(selectId, customId) {
-  const sel = $(selectId);
-  const raw = sel.value === '__custom' ? $(customId).value.trim() : sel.value;
-  if (raw) await ensureBusiness(raw);
-  return raw;
 }
 function bizTagHtml(business) {
   return business ? `<span class="biztag">${esc(business)}</span>` : '<span class="biztag" aria-hidden="true"></span>';
@@ -1312,17 +1329,16 @@ function showReceiptModal(opts) {
     <div class="formrow"><label>Date</label><input type="date" id="rDate" value="${p.date}"></div>
     <div class="formrow"><label>Amount</label><input type="number" step="0.01" id="rAmount" value="${p.total ?? ''}" placeholder="0.00"><select id="rCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === p.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Category</label>${categoryFieldHtml(categorize(p.merchant || ''), 'rCat', 'rCatCustom')}</div>
-    <div class="formrow"><label>Business</label>${businessFieldHtml('', 'rBusiness', 'rBusinessCustom')}</div>
+    <div class="formrow"><label>Business</label>${businessFieldHtml('', 'rBusiness')}</div>
     <div class="formrow"><label>Account</label><input id="rAccount" value="Receipts" list="acctList"><datalist id="acctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
     <div class="formrow" style="justify-content:flex-end; margin-top:16px"><button class="ghost" id="rCancel">Discard</button><button class="primary" id="rSave">Save transaction</button></div>`;
   $('#rCancel').onclick = () => { modal.classList.remove('open'); opts.resolve(); };
   wireCategoryCustom('#rCat', '#rCatCustom');
-  wireBusinessCustom('#rBusiness', '#rBusinessCustom');
   $('#rSave').onclick = async () => {
     const amount = parseFloat($('#rAmount').value);
     if (isNaN(amount) || !$('#rDate').value) { toast('Amount and date required'); return; }
     const category = readCategory('#rCat', '#rCatCustom') || 'Other';
-    const business = await readBusiness('#rBusiness', '#rBusinessCustom');
+    const business = await readBusiness('#rBusiness');
     const t = { date: $('#rDate').value, desc: $('#rMerchant').value.trim() || 'Receipt', amount: -Math.abs(amount), currency: $('#rCur').value, account: $('#rAccount').value.trim() || 'Receipts', source: 'receipt', category, business, transfer: false };
     t.id = txHash(t);
     if (S.txIds.has(t.id)) { toast('Duplicate, already saved'); modal.classList.remove('open'); opts.resolve(); return; }
@@ -1354,7 +1370,7 @@ function openTxModal(existing) {
     <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="eAmount" value="${t.amount != null ? Math.abs(t.amount) : ''}" placeholder="0.00"><select id="eCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Account</label><input id="eAccount" value="${esc(t.account)}" list="eAcctList" placeholder="e.g. Amex"><datalist id="eAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
     <div class="formrow"><label>Category</label>${categoryFieldHtml(t.category, 'eCat', 'eCatCustom')}</div>
-    <div class="formrow"><label>Business</label>${businessFieldHtml(t.business || '', 'eBusiness', 'eBusinessCustom')}</div>
+    <div class="formrow"><label>Business</label>${businessFieldHtml(t.business || '', 'eBusiness')}</div>
     <div class="formrow"><label>Jar</label><select id="eJar"><option value="">Auto (${esc((jarById(S.catJar[t.category]) || {name:'none'}).name)})</option>${S.jars.map(j => `<option value="${j.id}" ${t.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
     <div class="formrow" style="justify-content:space-between; margin-top:16px">
       <span>${existing ? `<button class="ghost danger" id="eDelete">Delete</button>` : ''}</span>
@@ -1363,7 +1379,6 @@ function openTxModal(existing) {
   modal.classList.add('open');
   setupDescriptionSuggestions();
   wireCategoryCustom('#eCat', '#eCatCustom');
-  wireBusinessCustom('#eBusiness', '#eBusinessCustom');
   $('#eCancel').onclick = () => modal.classList.remove('open');
   if (existing) $('#eDelete').onclick = async () => { await deleteTransactions([existing.id]); modal.classList.remove('open'); toast('Transaction deleted'); };
   $('#eSave').onclick = async () => {
@@ -1373,7 +1388,7 @@ function openTxModal(existing) {
     const flowv = $('#eFlow').value;
     const signed = flowv === 'in' ? Math.abs(amt) : -Math.abs(amt);
     const category = readCategory('#eCat', '#eCatCustom') || 'Other';
-    const business = await readBusiness('#eBusiness', '#eBusinessCustom');
+    const business = await readBusiness('#eBusiness');
     const nt = { id: existing ? existing.id : uid(), date, desc, amount: signed, currency: $('#eCur').value, account, source: existing ? existing.source : 'manual', category, business, jar: $('#eJar').value || null, transfer: flowv === 'transfer', hasThumb: existing ? existing.hasThumb : false };
     await DB.putTx([nt]);
     if (existing) { const i = S.tx.findIndex(x => x.id === existing.id); if (i >= 0) S.tx[i] = nt; } else { S.tx.push(nt); S.txIds.add(nt.id); }
@@ -1444,7 +1459,7 @@ function openSubscriptionModal(existing) {
     <div class="formrow"><label>Period</label><select id="sPeriod"><option value="monthly" ${sub.period==='monthly'?'selected':''}>Monthly</option><option value="yearly" ${sub.period==='yearly'?'selected':''}>Yearly</option><option value="weekly" ${sub.period==='weekly'?'selected':''}>Weekly</option></select></div>
     <div class="formrow"><label>Next due</label><input type="date" id="sDate" value="${sub.date}"></div>
     <div class="formrow"><label>Account</label><input id="sAccount" value="${esc(sub.account)}" list="sAcctList" placeholder="e.g. Amex"><datalist id="sAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
-    <div class="formrow"><label>Business</label>${businessFieldHtml(sub.business || '', 'sBusiness', 'sBusinessCustom')}</div>
+    <div class="formrow"><label>Business</label>${businessFieldHtml(sub.business || '', 'sBusiness')}</div>
     <div class="formrow"><label>Category</label>${categoryFieldHtml(sub.category, 'sCat', 'sCatCustom')}</div>
     <div class="formrow"><label>Jar</label><select id="sJar"><option value="">Auto from category</option>${S.jars.map(j => `<option value="${j.id}" ${sub.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
     <div class="formrow" style="justify-content:space-between; margin-top:16px">
@@ -1453,7 +1468,6 @@ function openSubscriptionModal(existing) {
     </div>`;
   modal.classList.add('open');
   wireCategoryCustom('#sCat', '#sCatCustom');
-  wireBusinessCustom('#sBusiness', '#sBusinessCustom');
   $('#sCancel').onclick = () => modal.classList.remove('open');
   if (existing) {
     $('#sDelete').onclick = async () => {
@@ -1473,7 +1487,7 @@ function openSubscriptionModal(existing) {
     const period = $('#sPeriod').value;
     const currency = $('#sCur').value;
     const category = readCategory('#sCat', '#sCatCustom') || 'Subscriptions';
-    const business = await readBusiness('#sBusiness', '#sBusinessCustom');
+    const business = await readBusiness('#sBusiness');
     const jar = $('#sJar').value;
     
     const missing = [!name && 'name', isNaN(amt) && 'amount', !date && 'next due date', !account && 'account'].filter(Boolean);
@@ -1942,7 +1956,7 @@ function renderTransactions() {
   const keepA = acctSel.value, keepC = catSel.value, keepB = bizSel?.value || '';
   acctSel.innerHTML = '<option value="">All accounts</option>' + Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('');
   catSel.innerHTML = '<option value="">All categories</option>' + allCategories().map(c => `<option>${esc(c)}</option>`).join('');
-  if (bizSel) bizSel.innerHTML = '<option value="">All funds</option><option value="__personal">Personal</option>' + businessNames().map(b => `<option>${esc(b)}</option>`).join('');
+  if (bizSel) bizSel.innerHTML = '<option value="">All</option><option value="__personal">Personal</option>' + businessNames().map(b => `<option>${esc(b)}</option>`).join('');
   acctSel.value = keepA; catSel.value = keepC; if (bizSel) bizSel.value = keepB;
   const q = $('#fSearch').value.toLowerCase(); const fa = acctSel.value, fc = catSel.value, fb = bizSel?.value || '', ff = $('#fFrom').value, ft = $('#fTo').value;
   const list = S.tx.filter(t => (!q || t.desc.toLowerCase().includes(q)) && (!fa || t.account === fa) && (!fc || t.category === fc) && (!fb || (fb === '__personal' ? !t.business : t.business === fb)) && (!ff || t.date >= ff) && (!ft || t.date <= ft));
@@ -2236,8 +2250,8 @@ function showSettings() {
     <div class="acctlist" style="margin:10px 0">${Object.keys(S.accounts).length ? Object.entries(S.accounts).sort(([a], [b]) => a.localeCompare(b)).map(([name, details]) => `<div class="acctrow"><span class="avatar" style="background:${acctColor(name)}">${esc(acctInitials(name))}</span><span class="name">${esc(name)}<span class="sub">${esc(details.currency || S.settings.base)}</span></span><button class="linkbtn danger" data-remove-account="${esc(name)}">Remove</button></div>`).join('') : '<div class="sub">No accounts yet.</div>'}</div>
     <div class="formrow"><label for="sAccountName">New account</label><input id="sAccountName" placeholder="e.g. TD Visa"><select id="sAccountCurrency" style="flex:none">${CURRENCIES.map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select><button class="primary sm" id="sAddAccount">Add</button></div>
     <h2 style="margin-top:18px">Businesses</h2>
-    <div class="sub">Tag expenses to a company (e.g. Core Fix). Shows in the middle of list rows instead of the category.</div>
-    <div class="acctlist" style="margin:10px 0">${businessNames().length ? businessNames().map(name => `<div class="acctrow"><span class="name">${esc(name)}</span><button class="linkbtn danger" data-remove-business="${esc(name)}">Remove</button></div>`).join('') : '<div class="sub">No businesses yet. Add one below or pick Custom when tagging an expense.</div>'}</div>
+    <div class="sub">Add your company here (e.g. Core Fix). Then tag any transaction or recurring expense as Personal or that business — the same list appears everywhere and syncs across devices.</div>
+    <div class="acctlist" style="margin:10px 0">${businessNames().length ? businessNames().map(name => `<div class="acctrow biz-row"><input class="biz-rename" data-business="${esc(name)}" value="${esc(name)}" aria-label="Business name"><button class="linkbtn sm" type="button" data-save-business="${esc(name)}">Save</button><button class="linkbtn danger" type="button" data-remove-business="${esc(name)}">Remove</button></div>`).join('') : '<div class="sub">No businesses yet. Add Core Fix (or your company name) below.</div>'}</div>
     <div class="formrow"><label for="sBusinessName">New business</label><input id="sBusinessName" placeholder="e.g. Core Fix"><button class="primary sm" id="sAddBusiness">Add</button></div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
@@ -2285,11 +2299,20 @@ function showSettings() {
   $('#sAddBusiness').onclick = async () => {
     const name = $('#sBusinessName').value.trim();
     if (!name) { toast('Name the business'); $('#sBusinessName').focus(); return; }
+    if (businessMatch(name, businessNames())) { toast('That business already exists'); return; }
     await ensureBusiness(name); renderAll(); showSettings(); toast(`${name} added`);
   };
+  $$('[data-save-business]').forEach(button => button.onclick = async () => {
+    const original = button.dataset.saveBusiness;
+    const input = button.closest('.biz-row')?.querySelector('.biz-rename');
+    const next = input?.value.trim();
+    if (!next) { toast('Enter a business name'); input?.focus(); return; }
+    await renameBusiness(original, next);
+    renderAll(); showSettings(); toast(`Renamed to ${next}`);
+  });
   $$('[data-remove-business]').forEach(button => button.onclick = async () => {
     const name = button.dataset.removeBusiness;
-    const inUse = S.tx.some(t => t.business === name) || S.subscriptions.some(s => s.business === name);
+    const inUse = S.tx.some(t => businessMatch(t.business, [name])) || S.subscriptions.some(s => businessMatch(s.business, [name]));
     if (inUse) { toast('Retag linked expenses first'); return; }
     delete S.businesses[name]; await DB.kvSet('businesses', S.businesses); renderAll(); showSettings(); toast(`${name} removed`);
   });
