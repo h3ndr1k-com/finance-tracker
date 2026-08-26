@@ -919,12 +919,29 @@ const CAT_COLORS = {
 function catColor(c) { return CAT_COLORS[c] || CAT_COLORS.Other; }
 
 function businessNames() { return Object.keys(S.businesses).sort((a, b) => a.localeCompare(b)); }
+function businessMatch(name, list) {
+  const cur = (name || '').trim();
+  if (!cur) return '';
+  return list.find(n => n === cur) || list.find(n => n.toLowerCase() === cur.toLowerCase()) || '';
+}
+function businessOptions(current) {
+  const names = businessNames();
+  const cur = (current || '').trim();
+  if (!cur) return { names, selected: '', isCustom: false };
+  const match = businessMatch(cur, names);
+  if (match) return { names, selected: match, isCustom: false };
+  return { names: [...names, cur].sort((a, b) => a.localeCompare(b)), selected: cur, isCustom: false };
+}
 async function ensureBusiness(name) {
   const n = (name || '').trim();
-  if (!n || S.businesses[n]) return n;
-  S.businesses[n] = 1;
-  await DB.kvSet('businesses', S.businesses);
-  return n;
+  if (!n) return '';
+  const existing = businessMatch(n, businessNames());
+  const key = existing || n;
+  if (!S.businesses[key]) {
+    S.businesses[key] = 1;
+    await DB.kvSet('businesses', S.businesses);
+  }
+  return key;
 }
 function allCategories() {
   const custom = [...new Set([
@@ -940,9 +957,8 @@ function categoryFieldHtml(current, selectId, customId) {
   return `<select id="${selectId}">${all.map(c => `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option></select><input id="${customId}" maxlength="40" placeholder="Custom category" value="${isCustom ? esc(current) : ''}" style="display:${isCustom ? 'block' : 'none'};margin-top:8px">`;
 }
 function businessFieldHtml(current, selectId, customId) {
-  const names = businessNames();
-  const isCustom = current && !names.includes(current);
-  return `<select id="${selectId}"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === current ? 'selected' : ''}>${esc(b)}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option></select><input id="${customId}" maxlength="40" placeholder="Company name" value="${isCustom ? esc(current) : ''}" style="display:${isCustom ? 'block' : 'none'};margin-top:8px">`;
+  const { names, selected, isCustom } = businessOptions(current);
+  return `<select id="${selectId}"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === selected ? 'selected' : ''}>${esc(b)}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option></select><input id="${customId}" maxlength="40" placeholder="Company name" value="" style="display:none;margin-top:8px">`;
 }
 function wireCategoryCustom(selectId, customId) {
   const sel = $(selectId), inp = $(customId);
@@ -968,9 +984,8 @@ function bizTagHtml(business) {
   return business ? `<span class="biztag">${esc(business)}</span>` : '<span class="biztag" aria-hidden="true"></span>';
 }
 function businessSelectHtml(current, dataId) {
-  const names = businessNames();
-  const cur = current || '';
-  return `<select class="bizselect" data-id="${dataId}" aria-label="Business"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === cur ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`;
+  const { names, selected } = businessOptions(current);
+  return `<select class="bizselect" data-id="${dataId}" aria-label="Business"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === selected ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`;
 }
 
 const DEFAULT_JARS = [
@@ -2409,8 +2424,10 @@ async function boot() {
   S.subscriptions = await DB.kvGet('subscriptions', []);
   S.creditCards = await DB.kvGet('creditCards', []);
   S.businesses = await DB.kvGet('businesses', {});
-  for (const t of S.tx) if (t.business) S.businesses[t.business] = 1;
-  for (const s of S.subscriptions) if (s.business) S.businesses[s.business] = 1;
+  let bizDirty = false;
+  for (const t of S.tx) if (t.business?.trim() && !businessMatch(t.business, businessNames())) { S.businesses[t.business.trim()] = 1; bizDirty = true; }
+  for (const s of S.subscriptions) if (s.business?.trim() && !businessMatch(s.business, businessNames())) { S.businesses[s.business.trim()] = 1; bizDirty = true; }
+  if (bizDirty) await DB.kvSet('businesses', S.businesses, false);
   await initDefaults();
   applyTheme(S.settings.theme || 'dark');
   renderAll();
