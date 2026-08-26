@@ -404,6 +404,10 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .recrow:last-child { border-bottom: none; }
 .recrow .name { flex: 1; min-width: 0; }
 .recrow .name .sub { display: block; }
+.recrow .biztag { flex: 0 1 38%; max-width: 220px; text-align: center; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recrow .num { flex: 0 0 auto; margin-left: auto; }
+.bizselect { background: transparent; border: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; max-width: 140px; text-overflow: ellipsis; }
+.bizselect:focus { outline: 2px solid var(--accent-soft); border-radius: 6px; }
 
 .sparkwrap { position: relative; touch-action: none; cursor: crosshair; }
 .hero .sparkwrap { margin: 14px -20px 0; }
@@ -647,6 +651,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
       <input type="search" id="fSearch" placeholder="Search description…">
       <select id="fAccount"><option value="">All accounts</option></select>
       <select id="fCategory"><option value="">All categories</option></select>
+      <select id="fBusiness"><option value="">All funds</option></select>
       <input type="date" id="fFrom" title="From date">
       <input type="date" id="fTo" title="To date">
     </div>
@@ -737,6 +742,7 @@ const SYNC_SCHEMA = {
   jarAdjustments: { kind: 'array', key: 'id' },
   subscriptions: { kind: 'array', key: 'id' },
   creditCards: { kind: 'array', key: 'id' },
+  businesses: { kind: 'map' },
 };
 const SYNC_META_KEY = 'syncMeta';
 const TOMB_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -899,7 +905,7 @@ const S = {
   settings: { base: 'CAD', theme: 'dark' },
   rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {},
   jars: [], catJar: {}, jarMoves: [], jarAdjustments: [],
-  subscriptions: [], creditCards: [],
+  subscriptions: [], creditCards: [], businesses: {},
   view: 'overview',
 };
 const CURRENCIES = ['CAD', 'EUR', 'USD'];
@@ -911,6 +917,61 @@ const CAT_COLORS = {
   Income:'var(--chart-1)', Investments:'var(--chart-2)', Transfer:'var(--chart-7)', Fees:'var(--chart-4)', Cash:'var(--chart-6)', Other:'var(--chart-8)',
 };
 function catColor(c) { return CAT_COLORS[c] || CAT_COLORS.Other; }
+
+function businessNames() { return Object.keys(S.businesses).sort((a, b) => a.localeCompare(b)); }
+async function ensureBusiness(name) {
+  const n = (name || '').trim();
+  if (!n || S.businesses[n]) return n;
+  S.businesses[n] = 1;
+  await DB.kvSet('businesses', S.businesses);
+  return n;
+}
+function allCategories() {
+  const custom = [...new Set([
+    ...Object.keys(S.budgets).filter(c => !CATEGORIES.includes(c)),
+    ...S.tx.map(t => t.category).filter(c => c && !CATEGORIES.includes(c)),
+    ...S.subscriptions.map(s => s.category).filter(c => c && !CATEGORIES.includes(c)),
+  ])].sort();
+  return [...CATEGORIES, ...custom];
+}
+function categoryFieldHtml(current, selectId, customId) {
+  const all = allCategories();
+  const isCustom = current && !CATEGORIES.includes(current);
+  return `<select id="${selectId}">${all.map(c => `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option></select><input id="${customId}" maxlength="40" placeholder="Custom category" value="${isCustom ? esc(current) : ''}" style="display:${isCustom ? 'block' : 'none'};margin-top:8px">`;
+}
+function businessFieldHtml(current, selectId, customId) {
+  const names = businessNames();
+  const isCustom = current && !names.includes(current);
+  return `<select id="${selectId}"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === current ? 'selected' : ''}>${esc(b)}</option>`).join('')}<option value="__custom" ${isCustom ? 'selected' : ''}>Custom…</option></select><input id="${customId}" maxlength="40" placeholder="Company name" value="${isCustom ? esc(current) : ''}" style="display:${isCustom ? 'block' : 'none'};margin-top:8px">`;
+}
+function wireCategoryCustom(selectId, customId) {
+  const sel = $(selectId), inp = $(customId);
+  if (!sel || !inp) return;
+  sel.onchange = () => { inp.style.display = sel.value === '__custom' ? 'block' : 'none'; if (sel.value === '__custom') inp.focus(); };
+}
+function wireBusinessCustom(selectId, customId) {
+  const sel = $(selectId), inp = $(customId);
+  if (!sel || !inp) return;
+  sel.onchange = () => { inp.style.display = sel.value === '__custom' ? 'block' : 'none'; if (sel.value === '__custom') inp.focus(); };
+}
+function readCategory(selectId, customId) {
+  const sel = $(selectId);
+  return sel.value === '__custom' ? $(customId).value.trim() : sel.value;
+}
+async function readBusiness(selectId, customId) {
+  const sel = $(selectId);
+  const raw = sel.value === '__custom' ? $(customId).value.trim() : sel.value;
+  if (raw) await ensureBusiness(raw);
+  return raw;
+}
+function bizTagHtml(business) {
+  return business ? `<span class="biztag">${esc(business)}</span>` : '<span class="biztag" aria-hidden="true"></span>';
+}
+function businessSelectHtml(current, dataId) {
+  const names = businessNames();
+  const cur = current || '';
+  return `<select class="bizselect" data-id="${dataId}" aria-label="Business"><option value="">Personal</option>${names.map(b => `<option value="${esc(b)}" ${b === cur ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`;
+}
 
 const DEFAULT_JARS = [
   { id: 'nec', name: 'Necessities', pct: 55, color: '#171717' },
@@ -1235,14 +1296,19 @@ function showReceiptModal(opts) {
     <div class="formrow"><label>Merchant</label><input id="rMerchant" value="${esc(p.merchant)}"></div>
     <div class="formrow"><label>Date</label><input type="date" id="rDate" value="${p.date}"></div>
     <div class="formrow"><label>Amount</label><input type="number" step="0.01" id="rAmount" value="${p.total ?? ''}" placeholder="0.00"><select id="rCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === p.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-    <div class="formrow"><label>Category</label><select id="rCat">${CATEGORIES.map(c => `<option ${c === categorize(p.merchant || '') ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Category</label>${categoryFieldHtml(categorize(p.merchant || ''), 'rCat', 'rCatCustom')}</div>
+    <div class="formrow"><label>Business</label>${businessFieldHtml('', 'rBusiness', 'rBusinessCustom')}</div>
     <div class="formrow"><label>Account</label><input id="rAccount" value="Receipts" list="acctList"><datalist id="acctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
     <div class="formrow" style="justify-content:flex-end; margin-top:16px"><button class="ghost" id="rCancel">Discard</button><button class="primary" id="rSave">Save transaction</button></div>`;
   $('#rCancel').onclick = () => { modal.classList.remove('open'); opts.resolve(); };
+  wireCategoryCustom('#rCat', '#rCatCustom');
+  wireBusinessCustom('#rBusiness', '#rBusinessCustom');
   $('#rSave').onclick = async () => {
     const amount = parseFloat($('#rAmount').value);
     if (isNaN(amount) || !$('#rDate').value) { toast('Amount and date required'); return; }
-    const t = { date: $('#rDate').value, desc: $('#rMerchant').value.trim() || 'Receipt', amount: -Math.abs(amount), currency: $('#rCur').value, account: $('#rAccount').value.trim() || 'Receipts', source: 'receipt', category: $('#rCat').value, transfer: false };
+    const category = readCategory('#rCat', '#rCatCustom') || 'Other';
+    const business = await readBusiness('#rBusiness', '#rBusinessCustom');
+    const t = { date: $('#rDate').value, desc: $('#rMerchant').value.trim() || 'Receipt', amount: -Math.abs(amount), currency: $('#rCur').value, account: $('#rAccount').value.trim() || 'Receipts', source: 'receipt', category, business, transfer: false };
     t.id = txHash(t);
     if (S.txIds.has(t.id)) { toast('Duplicate, already saved'); modal.classList.remove('open'); opts.resolve(); return; }
     const thumb = await makeThumb(opts.file).catch(() => null);
@@ -1263,7 +1329,7 @@ function makeThumb(file) {
 /* ---------- manual add / edit / delete ---------- */
 function openTxModal(existing) {
   const modal = $('#editModal'), body = $('#editBody');
-  const t = existing || { date: todayISO(), desc: '', amount: null, currency: S.settings.base, account: '', category: 'Other', jar: null, transfer: false };
+  const t = existing || { date: todayISO(), desc: '', amount: null, currency: S.settings.base, account: '', category: 'Other', business: '', jar: null, transfer: false };
   const flow = !existing ? 'out' : (t.transfer ? 'transfer' : (t.amount >= 0 ? 'in' : 'out'));
   body.innerHTML = `
     <h2>${existing ? 'Edit transaction' : 'Add transaction'}</h2>
@@ -1272,7 +1338,8 @@ function openTxModal(existing) {
     <div class="formrow"><label>Flow</label><select id="eFlow" style="flex:none"><option value="out" ${flow==='out'?'selected':''}>Money out</option><option value="in" ${flow==='in'?'selected':''}>Money in</option><option value="transfer" ${flow==='transfer'?'selected':''}>Transfer (net-zero)</option></select></div>
     <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="eAmount" value="${t.amount != null ? Math.abs(t.amount) : ''}" placeholder="0.00"><select id="eCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === t.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div class="formrow"><label>Account</label><input id="eAccount" value="${esc(t.account)}" list="eAcctList" placeholder="e.g. Amex"><datalist id="eAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
-    <div class="formrow"><label>Category</label><select id="eCat">${CATEGORIES.map(c => `<option ${c === t.category ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Category</label>${categoryFieldHtml(t.category, 'eCat', 'eCatCustom')}</div>
+    <div class="formrow"><label>Business</label>${businessFieldHtml(t.business || '', 'eBusiness', 'eBusinessCustom')}</div>
     <div class="formrow"><label>Jar</label><select id="eJar"><option value="">Auto (${esc((jarById(S.catJar[t.category]) || {name:'none'}).name)})</option>${S.jars.map(j => `<option value="${j.id}" ${t.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
     <div class="formrow" style="justify-content:space-between; margin-top:16px">
       <span>${existing ? `<button class="ghost danger" id="eDelete">Delete</button>` : ''}</span>
@@ -1280,6 +1347,8 @@ function openTxModal(existing) {
     </div>`;
   modal.classList.add('open');
   setupDescriptionSuggestions();
+  wireCategoryCustom('#eCat', '#eCatCustom');
+  wireBusinessCustom('#eBusiness', '#eBusinessCustom');
   $('#eCancel').onclick = () => modal.classList.remove('open');
   if (existing) $('#eDelete').onclick = async () => { await deleteTransactions([existing.id]); modal.classList.remove('open'); toast('Transaction deleted'); };
   $('#eSave').onclick = async () => {
@@ -1288,7 +1357,9 @@ function openTxModal(existing) {
     if (missing.length) { toast('Missing: ' + missing.join(', ')); return; }
     const flowv = $('#eFlow').value;
     const signed = flowv === 'in' ? Math.abs(amt) : -Math.abs(amt);
-    const nt = { id: existing ? existing.id : uid(), date, desc, amount: signed, currency: $('#eCur').value, account, source: existing ? existing.source : 'manual', category: $('#eCat').value, jar: $('#eJar').value || null, transfer: flowv === 'transfer', hasThumb: existing ? existing.hasThumb : false };
+    const category = readCategory('#eCat', '#eCatCustom') || 'Other';
+    const business = await readBusiness('#eBusiness', '#eBusinessCustom');
+    const nt = { id: existing ? existing.id : uid(), date, desc, amount: signed, currency: $('#eCur').value, account, source: existing ? existing.source : 'manual', category, business, jar: $('#eJar').value || null, transfer: flowv === 'transfer', hasThumb: existing ? existing.hasThumb : false };
     await DB.putTx([nt]);
     if (existing) { const i = S.tx.findIndex(x => x.id === existing.id); if (i >= 0) S.tx[i] = nt; } else { S.tx.push(nt); S.txIds.add(nt.id); }
     if (!(account in S.accounts)) { S.accounts[account] = { currency: nt.currency }; await DB.kvSet('accounts', S.accounts); }
@@ -1348,7 +1419,7 @@ async function deleteTransactions(ids) {
 /* ---------- subscriptions add / edit / delete ---------- */
 function openSubscriptionModal(existing) {
   const modal = $('#editModal'), body = $('#editBody');
-  const sub = existing || { name: '', amount: null, currency: S.settings.base, period: 'monthly', date: todayISO(), category: 'Subscriptions', account: '', jar: '' };
+  const sub = existing || { name: '', amount: null, currency: S.settings.base, period: 'monthly', date: todayISO(), category: 'Subscriptions', business: '', account: '', jar: '' };
   
   body.innerHTML = `
     <h2>${existing ? 'Edit recurring expense' : 'Add recurring expense'}</h2>
@@ -1358,13 +1429,16 @@ function openSubscriptionModal(existing) {
     <div class="formrow"><label>Period</label><select id="sPeriod"><option value="monthly" ${sub.period==='monthly'?'selected':''}>Monthly</option><option value="yearly" ${sub.period==='yearly'?'selected':''}>Yearly</option><option value="weekly" ${sub.period==='weekly'?'selected':''}>Weekly</option></select></div>
     <div class="formrow"><label>Next due</label><input type="date" id="sDate" value="${sub.date}"></div>
     <div class="formrow"><label>Account</label><input id="sAccount" value="${esc(sub.account)}" list="sAcctList" placeholder="e.g. Amex"><datalist id="sAcctList">${Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('')}</datalist></div>
-    <div class="formrow"><label>Category</label><select id="sCat">${CATEGORIES.map(c => `<option ${c === sub.category ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div class="formrow"><label>Business</label>${businessFieldHtml(sub.business || '', 'sBusiness', 'sBusinessCustom')}</div>
+    <div class="formrow"><label>Category</label>${categoryFieldHtml(sub.category, 'sCat', 'sCatCustom')}</div>
     <div class="formrow"><label>Jar</label><select id="sJar"><option value="">Auto from category</option>${S.jars.map(j => `<option value="${j.id}" ${sub.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
     <div class="formrow" style="justify-content:space-between; margin-top:16px">
       <span>${existing ? `<button class="ghost danger" id="sDelete">Delete</button>` : ''}</span>
       <span><button class="ghost" id="sCancel">Cancel</button> <button class="primary" id="sSave">Save</button></span>
     </div>`;
   modal.classList.add('open');
+  wireCategoryCustom('#sCat', '#sCatCustom');
+  wireBusinessCustom('#sBusiness', '#sBusinessCustom');
   $('#sCancel').onclick = () => modal.classList.remove('open');
   if (existing) {
     $('#sDelete').onclick = async () => {
@@ -1383,13 +1457,14 @@ function openSubscriptionModal(existing) {
     const account = $('#sAccount').value.trim();
     const period = $('#sPeriod').value;
     const currency = $('#sCur').value;
-    const category = $('#sCat').value;
+    const category = readCategory('#sCat', '#sCatCustom') || 'Subscriptions';
+    const business = await readBusiness('#sBusiness', '#sBusinessCustom');
     const jar = $('#sJar').value;
     
     const missing = [!name && 'name', isNaN(amt) && 'amount', !date && 'next due date', !account && 'account'].filter(Boolean);
     if (missing.length) { toast('Missing: ' + missing.join(', ')); return; }
     
-    const ns = { id: existing ? existing.id : uid(), name, amount: amt, currency, period, date, category, account, jar, source: existing ? existing.source : 'manual' };
+    const ns = { id: existing ? existing.id : uid(), name, amount: amt, currency, period, date, category, business, account, jar, source: existing ? existing.source : 'manual' };
     if (existing) {
       const idx = S.subscriptions.findIndex(x => x.id === existing.id);
       if (idx >= 0) S.subscriptions[idx] = ns;
@@ -1435,7 +1510,8 @@ function renderSubscriptions() {
       return `
         <div class="recrow manual-sub-row" data-id="${s.id}">
           <span class="dot" style="background:${catColor(s.category)}"></span>
-          <span class="name">${esc(s.name)}<span class="sub">${esc(s.account)} · due ${dayLabel(s.date)} · ${s.jar ? `Jar: ${esc(jarById(s.jar)?.name || 'none')}` : `Jar: ${esc(jarById(S.catJar[s.category])?.name || 'none')} (auto)`}</span></span>
+          <span class="name">${esc(s.name)}<span class="sub">${esc(s.account)} · due ${dayLabel(s.date)}</span></span>
+          ${bizTagHtml(s.business)}
           <span class="num" style="text-align:right;white-space:nowrap">
             ${fmtMoney(s.amount, s.currency)}${freqSuffix}
             ${s.currency !== S.settings.base ? `<span class="sub num">${baseFmt(monthlyEquivalent)}/mo equivalent</span>` : ''}
@@ -1458,7 +1534,8 @@ function renderSubscriptions() {
     detSubsEl.innerHTML = recurring.map((r, i) => `
       <div class="recrow det-sub-row" data-i="${i}">
         <span class="dot" style="background:${catColor(r.cat)}"></span>
-        <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly · ${esc(r.cat)}</span></span>
+        <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly</span></span>
+        ${bizTagHtml(r.business)}
         <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span>
       </div>`).join('');
       
@@ -1610,7 +1687,7 @@ function detectRecurring() {
     const stable = (Math.max(...amts) - Math.min(...amts)) / mid < 0.08;
     let monotonicUp = last > first * 1.03; for (let i = 1; i < amts.length; i++) if (amts[i] < amts[i - 1] * 0.99) monotonicUp = false;
     if (!stable && !monotonicUp) continue; // recurring bills/subs only: fixed or steadily rising, not fluctuating spend
-    out.push({ name: items[items.length - 1].desc, monthly: last, annual: last * 12, count: items.length, cat: items[items.length - 1].category, hike: monotonicUp && last > first * 1.03 ? { from: first, to: last } : null, items });
+    out.push({ name: items[items.length - 1].desc, monthly: last, annual: last * 12, count: items.length, cat: items[items.length - 1].category, business: items[items.length - 1].business || '', hike: monotonicUp && last > first * 1.03 ? { from: first, to: last } : null, items });
   }
   return out.sort((a, b) => b.monthly - a.monthly);
 }
@@ -1772,11 +1849,12 @@ function renderOverview() {
     <div class="card">
       <div class="cardhead"><div class="label">Recurring & subscriptions</div><button class="linkbtn" onclick="switchView('subscriptions'); window.scrollTo({ top: 0 });">Manage</button></div>
       ${recurring.length || S.subscriptions.length ? `<div class="reclist">${[
-        ...S.subscriptions.slice(0, 4).map(s => ({ name: s.name, monthly: subscriptionMonthlyAmount(s), cat: s.category, manual: true })),
-        ...recurring.slice(0, 8 - Math.min(S.subscriptions.length, 4)).map(r => ({ name: r.name, monthly: r.monthly, cat: r.cat, manual: false, hike: r.hike, count: r.count })),
+        ...S.subscriptions.slice(0, 4).map(s => ({ name: s.name, monthly: subscriptionMonthlyAmount(s), cat: s.category, business: s.business || '', manual: true })),
+        ...recurring.slice(0, 8 - Math.min(S.subscriptions.length, 4)).map(r => ({ name: r.name, monthly: r.monthly, cat: r.cat, business: r.business || '', manual: false, hike: r.hike, count: r.count })),
       ].slice(0, 8).map((r, i) => `
         <div class="recrow" data-i="${i}"><span class="dot" style="background:${catColor(r.cat)}"></span>
-          <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.manual ? 'manual recurring' : `${r.count}× monthly · ${esc(r.cat)}`}</span></span>
+          <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.manual ? 'manual recurring' : `${r.count}× monthly`}</span></span>
+          ${bizTagHtml(r.business)}
           <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.monthly * 12)}/yr</span></span></div>`).join('')}</div>`
         : '<div class="sub">No recurring charges yet. Add one under Recurring or import a few months of activity.</div>'}
     </div>
@@ -1828,6 +1906,7 @@ function openRecurringDetail(r) {
       const changed = prevAmt !== null && Math.abs(curAmt - prevAmt) / (prevAmt || 1) > 0.005;
       return `<div class="recrow" style="cursor:default">
         <span class="name">${esc(dayLabel(t.date))}<span class="sub">${esc(t.account)}</span></span>
+        ${bizTagHtml(t.business)}
         ${changed ? `<span class="pill" style="background:${curAmt > prevAmt ? 'var(--coral-soft)' : 'var(--accent-soft)'};color:${curAmt > prevAmt ? 'var(--coral)' : 'var(--accent)'}">${curAmt > prevAmt ? '▲' : '▼'} ${baseFmt(Math.abs(curAmt - prevAmt))}</span>` : ''}
         <span class="num" style="white-space:nowrap">${fmtMoney(t.amount, t.currency)}</span></div>`;
     }).join('')}</div>
@@ -1844,14 +1923,15 @@ function openRecurringDetail(r) {
 let sortCol = 'date', sortDir = -1;
 const selected = new Set();
 function renderTransactions() {
-  const acctSel = $('#fAccount'), catSel = $('#fCategory');
-  const keepA = acctSel.value, keepC = catSel.value;
+  const acctSel = $('#fAccount'), catSel = $('#fCategory'), bizSel = $('#fBusiness');
+  const keepA = acctSel.value, keepC = catSel.value, keepB = bizSel?.value || '';
   acctSel.innerHTML = '<option value="">All accounts</option>' + Object.keys(S.accounts).map(a => `<option>${esc(a)}</option>`).join('');
-  catSel.innerHTML = '<option value="">All categories</option>' + CATEGORIES.map(c => `<option>${c}</option>`).join('');
-  acctSel.value = keepA; catSel.value = keepC;
-  const q = $('#fSearch').value.toLowerCase(); const fa = acctSel.value, fc = catSel.value, ff = $('#fFrom').value, ft = $('#fTo').value;
-  const list = S.tx.filter(t => (!q || t.desc.toLowerCase().includes(q)) && (!fa || t.account === fa) && (!fc || t.category === fc) && (!ff || t.date >= ff) && (!ft || t.date <= ft));
-  list.sort((a, b) => { let va = a[sortCol], vb = b[sortCol]; if (sortCol === 'amount') { va = toBase(a.amount, a.currency); vb = toBase(b.amount, b.currency); } return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir; });
+  catSel.innerHTML = '<option value="">All categories</option>' + allCategories().map(c => `<option>${esc(c)}</option>`).join('');
+  if (bizSel) bizSel.innerHTML = '<option value="">All funds</option><option value="__personal">Personal</option>' + businessNames().map(b => `<option>${esc(b)}</option>`).join('');
+  acctSel.value = keepA; catSel.value = keepC; if (bizSel) bizSel.value = keepB;
+  const q = $('#fSearch').value.toLowerCase(); const fa = acctSel.value, fc = catSel.value, fb = bizSel?.value || '', ff = $('#fFrom').value, ft = $('#fTo').value;
+  const list = S.tx.filter(t => (!q || t.desc.toLowerCase().includes(q)) && (!fa || t.account === fa) && (!fc || t.category === fc) && (!fb || (fb === '__personal' ? !t.business : t.business === fb)) && (!ff || t.date >= ff) && (!ft || t.date <= ft));
+  list.sort((a, b) => { let va = a[sortCol], vb = b[sortCol]; if (sortCol === 'amount') { va = toBase(a.amount, a.currency); vb = toBase(b.amount, b.currency); } if (sortCol === 'business') { va = a.business || ''; vb = b.business || ''; } return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir; });
   const arrow = (c) => sortCol === c ? (sortDir > 0 ? ' ↑' : ' ↓') : '';
   const rows = list.slice(0, 500).map(t => {
     const conv = toBase(t.amount, t.currency); const same = t.currency === S.settings.base; const jid = txJar(t); const jar = jarById(jid);
@@ -1859,7 +1939,7 @@ function renderTransactions() {
       <td class="selcol"><input type="checkbox" class="rowchk" data-id="${t.id}" ${selected.has(t.id) ? 'checked' : ''} style="cursor:pointer"></td>
       <td class="num sub" style="white-space:nowrap">${t.date}</td>
       <td>${esc(t.desc)}${t.source === 'receipt' ? ' <span class="pill">receipt</span>' : ''}${t.transfer ? ' <span class="pill grey">transfer</span>' : ''}</td>
-      <td><span class="catpill"><span class="dot" style="background:${catColor(t.category)}"></span><select class="catselect" data-id="${t.id}">${CATEGORIES.map(c => `<option ${c === t.category ? 'selected' : ''}>${c}</option>`).join('')}</select></span></td>
+      <td class="bizcol">${businessSelectHtml(t.business, t.id)}</td>
       <td>${t.transfer ? '<span class="sub">-</span>' : `<span class="jartag" data-jar-id="${t.id}">${jar ? esc(jar.name) : 'set jar'}</span>`}</td>
       <td class="sub">${esc(t.account)}</td>
       <td class="amt num ${t.amount >= 0 ? 'pos' : ''}" title="${esc(rateTooltip(t.currency))}">${fmtMoney(t.amount, t.currency, { plus: true })}${same ? '' : `<br><span class="sub num">${baseFmt(conv, { plus: true })}</span>`}</td>
@@ -1869,13 +1949,13 @@ function renderTransactions() {
     <table id="txTable"><thead><tr>
       <th class="selcol"><input type="checkbox" id="chkAll" style="cursor:pointer"></th>
       <th data-sort="date">Date${arrow('date')}</th><th data-sort="desc">Description${arrow('desc')}</th>
-      <th data-sort="category">Category${arrow('category')}</th><th>Jar</th><th data-sort="account">Account${arrow('account')}</th>
+      <th data-sort="business">Business${arrow('business')}</th><th>Jar</th><th data-sort="account">Account${arrow('account')}</th>
       <th data-sort="amount" class="amt">Amount${arrow('amount')}</th>
     </tr></thead><tbody>${rows}</tbody></table>${list.length > 500 ? `<div class="sub" style="padding:10px">Showing 500 of ${list.length}, narrow the filters.</div>` : ''}`
     : '<div class="empty">No matching transactions.</div>';
 
   $$('#txTable th[data-sort]').forEach(th => th.onclick = () => { const c = th.dataset.sort; if (sortCol === c) sortDir = -sortDir; else { sortCol = c; sortDir = c === 'date' ? -1 : 1; } renderTransactions(); });
-  $$('#txTable .catselect').forEach(sel => { sel.onclick = (e) => e.stopPropagation(); sel.onchange = async (e) => { e.stopPropagation(); const t = S.tx.find(x => x.id === sel.dataset.id); if (!t) return; t.category = sel.value; await DB.putTx([t]); await learnRule(t.desc, sel.value); toast(`"${t.desc.slice(0, 24)}" → ${sel.value} (rule learned)`); renderOverview(); renderJars(); renderBudgets(); renderTransactions(); }; });
+  $$('#txTable .bizselect').forEach(sel => { sel.onclick = (e) => e.stopPropagation(); sel.onchange = async (e) => { e.stopPropagation(); const t = S.tx.find(x => x.id === sel.dataset.id); if (!t) return; const v = sel.value; if (v) await ensureBusiness(v); t.business = v; await DB.putTx([t]); toast(v ? `"${t.desc.slice(0, 24)}" → ${v}` : 'Marked personal'); renderOverview(); renderSubscriptions(); renderTransactions(); }; });
   $$('#txTable .rowchk').forEach(chk => chk.onclick = (e) => { e.stopPropagation(); if (chk.checked) selected.add(chk.dataset.id); else selected.delete(chk.dataset.id); syncBulk(); chk.closest('tr').classList.toggle('sel', chk.checked); });
   $$('#txTable .jartag').forEach(tag => tag.onclick = (e) => { e.stopPropagation(); openJarPicker(tag.dataset.jarId, tag); });
   const chkAll = $('#chkAll'); if (chkAll) chkAll.onclick = () => { list.slice(0, 500).forEach(t => chkAll.checked ? selected.add(t.id) : selected.delete(t.id)); renderTransactions(); syncBulk(); };
@@ -1896,12 +1976,14 @@ function syncBulk() {
   if (!selected.size) { bar.classList.remove('show'); bar.innerHTML = ''; return; }
   bar.classList.add('show');
   bar.innerHTML = `<span class="count">${selected.size} selected</span>
-    <select id="bCat"><option value="">Set category…</option>${CATEGORIES.map(c => `<option>${c}</option>`).join('')}</select>
+    <select id="bCat"><option value="">Set category…</option>${allCategories().map(c => `<option>${esc(c)}</option>`).join('')}</select>
+    <select id="bBiz"><option value="">Set business…</option><option value="__clear">Personal</option>${businessNames().map(b => `<option>${esc(b)}</option>`).join('')}</select>
     <select id="bJar"><option value="">Set jar…</option>${S.jars.map(j => `<option value="${j.id}">${esc(j.name)}</option>`).join('')}</select>
     <button id="bXfer">Toggle transfer</button><button id="bDel" style="border-color:var(--coral);color:var(--coral)">Delete</button>
     <button class="x" id="bClear">Clear</button>`;
   const sel = () => S.tx.filter(t => selected.has(t.id));
   $('#bCat').onchange = async () => { const v = $('#bCat').value; if (!v) return; const items = sel(); for (const t of items) { t.category = v; await learnRule(t.desc, v); } await DB.putTx(items); toast(`${items.length} → ${v}`); renderAll(); };
+  $('#bBiz').onchange = async () => { const v = $('#bBiz').value; if (!v) return; const items = sel(); const business = v === '__clear' ? '' : v; if (business) await ensureBusiness(business); items.forEach(t => t.business = business); await DB.putTx(items); toast(`${items.length} → ${business || 'personal'}`); renderAll(); };
   $('#bJar').onchange = async () => { const v = $('#bJar').value; if (!v) return; const items = sel(); items.forEach(t => t.jar = v); await DB.putTx(items); toast(`${items.length} → ${jarById(v).name}`); renderAll(); };
   $('#bXfer').onclick = async () => { const items = sel(); const anyOff = items.some(t => !t.transfer); items.forEach(t => t.transfer = anyOff); await DB.putTx(items); toast(`${items.length} marked ${anyOff ? 'transfer' : 'not transfer'}`); renderAll(); };
   $('#bDel').onclick = async () => { const ids = [...selected]; if (!confirm(`Delete ${ids.length} transaction(s)?`)) return; await deleteTransactions(ids); toast(`${ids.length} deleted`); };
@@ -2138,6 +2220,10 @@ function showSettings() {
     <div class="sub">Add accounts here. They show on Overview immediately, even before you import activity.</div>
     <div class="acctlist" style="margin:10px 0">${Object.keys(S.accounts).length ? Object.entries(S.accounts).sort(([a], [b]) => a.localeCompare(b)).map(([name, details]) => `<div class="acctrow"><span class="avatar" style="background:${acctColor(name)}">${esc(acctInitials(name))}</span><span class="name">${esc(name)}<span class="sub">${esc(details.currency || S.settings.base)}</span></span><button class="linkbtn danger" data-remove-account="${esc(name)}">Remove</button></div>`).join('') : '<div class="sub">No accounts yet.</div>'}</div>
     <div class="formrow"><label for="sAccountName">New account</label><input id="sAccountName" placeholder="e.g. TD Visa"><select id="sAccountCurrency" style="flex:none">${CURRENCIES.map(c => `<option ${c === S.settings.base ? 'selected' : ''}>${c}</option>`).join('')}</select><button class="primary sm" id="sAddAccount">Add</button></div>
+    <h2 style="margin-top:18px">Businesses</h2>
+    <div class="sub">Tag expenses to a company (e.g. Core Fix). Shows in the middle of list rows instead of the category.</div>
+    <div class="acctlist" style="margin:10px 0">${businessNames().length ? businessNames().map(name => `<div class="acctrow"><span class="name">${esc(name)}</span><button class="linkbtn danger" data-remove-business="${esc(name)}">Remove</button></div>`).join('') : '<div class="sub">No businesses yet. Add one below or pick Custom when tagging an expense.</div>'}</div>
+    <div class="formrow"><label for="sBusinessName">New business</label><input id="sBusinessName" placeholder="e.g. Core Fix"><button class="primary sm" id="sAddBusiness">Add</button></div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
     <div id="syncPanel" aria-live="polite"></div>
@@ -2181,12 +2267,23 @@ function showSettings() {
     if (inUse) { toast('Remove or rename its linked activity first'); return; }
     delete S.accounts[name]; await DB.kvSet('accounts', S.accounts); renderAll(); showSettings(); toast(`${name} removed`);
   });
+  $('#sAddBusiness').onclick = async () => {
+    const name = $('#sBusinessName').value.trim();
+    if (!name) { toast('Name the business'); $('#sBusinessName').focus(); return; }
+    await ensureBusiness(name); renderAll(); showSettings(); toast(`${name} added`);
+  };
+  $$('[data-remove-business]').forEach(button => button.onclick = async () => {
+    const name = button.dataset.removeBusiness;
+    const inUse = S.tx.some(t => t.business === name) || S.subscriptions.some(s => s.business === name);
+    if (inUse) { toast('Retag linked expenses first'); return; }
+    delete S.businesses[name]; await DB.kvSet('businesses', S.businesses); renderAll(); showSettings(); toast(`${name} removed`);
+  });
   $('#sExport').onclick = exportJsonBackup;
   $('#sImport').onclick = triggerJsonImport;
   $('#sImportBackup').onclick = triggerJsonImport;
   $('#sWipe').onclick = async () => {
     if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, recurring expenses, and credit cards? This cannot be undone.')) return;
-    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], settings: { base: S.settings.base, theme: S.settings.theme } });
+    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], businesses: {}, settings: { base: S.settings.base, theme: S.settings.theme } });
     S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar);
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
   };
@@ -2257,7 +2354,7 @@ document.addEventListener('syncstatus', () => { if ($('#settingsModal').classLis
 /* ---------- JSON backup ---------- */
 function triggerJsonImport() { $('#jsonInput')?.click(); }
 async function exportJsonBackup() {
-  const payload = { exportedAt: new Date().toISOString(), settings: S.settings, rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards, transactions: S.tx };
+  const payload = { exportedAt: new Date().toISOString(), settings: S.settings, rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards, businesses: S.businesses, transactions: S.tx };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ledger-export-${todayISO()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
@@ -2275,9 +2372,10 @@ async function importJsonBackup(file) {
   S.catJar = payload.catJar || { ...DEFAULT_CATJAR };
   S.jarMoves = payload.jarMoves || []; S.jarAdjustments = payload.jarAdjustments || [];
   S.subscriptions = payload.subscriptions || []; S.creditCards = payload.creditCards || [];
+  S.businesses = payload.businesses || {};
   await DB.putTx(S.tx, false);
   await DB.kvSet('settings', S.settings, false);
-  for (const [key, val] of Object.entries({ rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards })) {
+  for (const [key, val] of Object.entries({ rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards, businesses: S.businesses })) {
     await DB.kvSet(key, val, false);
   }
   await initDefaults();
@@ -2310,6 +2408,9 @@ async function boot() {
   S.jars = await DB.kvGet('jars', []); S.catJar = await DB.kvGet('catJar', {}); S.jarMoves = await DB.kvGet('jarMoves', []); S.jarAdjustments = await DB.kvGet('jarAdjustments', []);
   S.subscriptions = await DB.kvGet('subscriptions', []);
   S.creditCards = await DB.kvGet('creditCards', []);
+  S.businesses = await DB.kvGet('businesses', {});
+  for (const t of S.tx) if (t.business) S.businesses[t.business] = 1;
+  for (const s of S.subscriptions) if (s.business) S.businesses[s.business] = 1;
   await initDefaults();
   applyTheme(S.settings.theme || 'dark');
   renderAll();
@@ -2362,7 +2463,7 @@ $('#jsonInput')?.addEventListener('change', async (e) => {
   try { await importJsonBackup(file); }
   catch (err) { toast(`Import failed: ${err.message}`); }
 });
-document.addEventListener('click', (e) => { const tr = e.target.closest('#txTable tbody tr'); if (tr && !e.target.closest('.catselect,.rowchk,.jartag,.selcol')) { const t = S.tx.find(x => x.id === tr.dataset.id); if (t) openTxModal(t); } });
+document.addEventListener('click', (e) => { const tr = e.target.closest('#txTable tbody tr'); if (tr && !e.target.closest('.bizselect,.rowchk,.jartag,.selcol')) { const t = S.tx.find(x => x.id === tr.dataset.id); if (t) openTxModal(t); } });
 $$('.modal-backdrop').forEach(m => m.addEventListener('click', (e) => {
   if (e.target === m) { m.classList.remove('open'); if (typeof flushDeferredRender === 'function') flushDeferredRender(); }
 }));
@@ -2374,7 +2475,7 @@ document.addEventListener('keydown', (e) => {
     if (typeof flushDeferredRender === 'function') flushDeferredRender();
   }
 });
-['fSearch', 'fAccount', 'fCategory', 'fFrom', 'fTo'].forEach(id => $('#' + id).addEventListener('input', renderTransactions));
+['fSearch', 'fAccount', 'fCategory', 'fBusiness', 'fFrom', 'fTo'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('input', renderTransactions); });
 $('#budgetMonth').addEventListener('input', renderBudgets);
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW registration failed', e));
