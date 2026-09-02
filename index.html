@@ -294,6 +294,13 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 }
 .sync-recovery strong { display: block; margin-bottom: 3px; font-size: 14px; }
 .sync-recovery p { margin: 0; max-width: 58ch; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.reminder-banner {
+  margin-top: 14px; padding: 12px 14px; border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--hairline));
+}
+.reminder-banner strong { display: block; margin-bottom: 4px; font-size: 14px; }
+.reminder-banner p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .desc-combobox { position: relative; flex: 1; min-width: 90px; }
 .desc-combobox input { width: 100%; }
 .desc-suggestions {
@@ -724,6 +731,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
 <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
 <input type="file" id="jsonInput" accept="application/json,.json" hidden>
 
+<script src="./reminders.js"></script>
 <script>
 'use strict';
 
@@ -1084,6 +1092,86 @@ function subscriptionMonthlyAmount(sub) {
   if (sub.period === 'yearly') return baseAmt / 12;
   if (sub.period === 'weekly') return baseAmt * 4.33;
   return baseAmt;
+}
+function recurringDueTomorrow() {
+  return subscriptionsDueOn(S.subscriptions, reminderTomorrowISO());
+}
+function reminderBannerHtml(subs) {
+  if (!subs.length) return '';
+  const lines = subs.map(s => {
+    const amt = reminderAmountLabel(s);
+    return `<strong>${esc(s.name)}</strong>${amt ? ` · ${esc(amt)}` : ''}${s.account ? ` · ${esc(s.account)}` : ''}`;
+  }).join('<br>');
+  return `<div class="reminder-banner" role="status"><strong>Due tomorrow</strong><p>${lines}</p></div>`;
+}
+async function getReminderLog() {
+  return pruneReminderLog(await DB.kvGet('reminderLog', {}), todayISO());
+}
+async function saveReminderLog(log) {
+  await DB.kvSet('reminderLog', pruneReminderLog(log, todayISO()), false);
+}
+async function syncReminderStateToSW() {
+  if (!navigator.serviceWorker?.controller) return;
+  const sentLog = await getReminderLog();
+  navigator.serviceWorker.controller.postMessage({
+    type: 'REMINDER_SYNC',
+    payload: {
+      enabled: !!S.settings.recurringReminders && Notification?.permission === 'granted',
+      subs: S.subscriptions.map(s => ({ id: s.id, name: s.name, date: s.date, amount: s.amount, currency: s.currency, account: s.account })),
+      sentLog,
+    },
+  });
+}
+async function registerReminderBackgroundSync() {
+  if (!S.settings.recurringReminders || Notification?.permission !== 'granted') return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if ('periodicSync' in reg) await reg.periodicSync.register('recurring-reminders', { minInterval: 24 * 60 * 60 * 1000 });
+  } catch {
+    // Periodic background sync is optional and often unavailable until installed as a PWA.
+  }
+}
+async function checkRecurringReminders() {
+  if (!S.settings.recurringReminders) { await syncReminderStateToSW(); return; }
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') { await syncReminderStateToSW(); return; }
+  const sentLog = await getReminderLog();
+  const tomorrow = reminderTomorrowISO();
+  const pending = pendingRecurringReminders(S.subscriptions, tomorrow, sentLog);
+  if (!pending.length) { await syncReminderStateToSW(); return; }
+  const reg = await navigator.serviceWorker?.ready?.catch(() => null);
+  for (const sub of pending) {
+    const opts = {
+      body: reminderBody(sub, sub.date),
+      icon: './icons/icon-192.png',
+      tag: reminderKey(sub),
+      renotify: true,
+      data: { view: 'subscriptions', key: reminderKey(sub) },
+    };
+    if (reg?.showNotification) await reg.showNotification(`${sub.name} due tomorrow`, opts);
+    else new Notification(`${sub.name} due tomorrow`, opts);
+    sentLog[reminderKey(sub)] = todayISO();
+  }
+  await saveReminderLog(sentLog);
+  await syncReminderStateToSW();
+  reg?.active?.postMessage({ type: 'REMINDER_CHECK' });
+}
+async function setRecurringRemindersEnabled(on) {
+  S.settings.recurringReminders = !!on;
+  await DB.kvSet('settings', S.settings);
+  if (on && Notification?.permission === 'default') {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      S.settings.recurringReminders = false;
+      await DB.kvSet('settings', S.settings);
+      toast('Notifications blocked — enable them in browser settings to get reminders');
+      return false;
+    }
+  }
+  await registerReminderBackgroundSync();
+  await syncReminderStateToSW();
+  if (S.settings.recurringReminders) await checkRecurringReminders();
+  return S.settings.recurringReminders;
 }
 function manualSubscriptionKeys() {
   return new Set(S.subscriptions.map(s => merchantKey(s.name)));
@@ -1477,6 +1565,7 @@ function openSubscriptionModal(existing) {
       modal.classList.remove('open');
       toast('Subscription deleted');
       renderAll();
+      await syncReminderStateToSW();
     };
   }
   $('#sSave').onclick = async () => {
@@ -1503,8 +1592,9 @@ function openSubscriptionModal(existing) {
     await DB.kvSet('subscriptions', S.subscriptions);
     if (!(account in S.accounts)) { S.accounts[account] = { currency }; await DB.kvSet('accounts', S.accounts); }
     modal.classList.remove('open');
-      toast(existing ? 'Saved' : 'Recurring expense added');
+    toast(existing ? 'Saved' : 'Recurring expense added');
     renderAll();
+    await checkRecurringReminders();
   };
 }
 
@@ -1857,7 +1947,10 @@ function renderOverview() {
   const manualRecurring = S.subscriptions.reduce((s, sub) => s + subscriptionMonthlyAmount(sub), 0);
   const days = dailySeries();
 
+  const dueTomorrow = recurringDueTomorrow();
+
   el.innerHTML = `
+    ${dueTomorrow.length ? reminderBannerHtml(dueTomorrow) : ''}
     <div class="card hero">
       <div class="label">Net position · all accounts</div>
       <div class="big num cu" data-v="${net}">${baseFmt(net)}</div>
@@ -2253,6 +2346,15 @@ function showSettings() {
     <div class="sub">Add your company here (e.g. Core Fix). Then tag any transaction or recurring expense as Personal or that business — the same list appears everywhere and syncs across devices.</div>
     <div class="acctlist" style="margin:10px 0">${businessNames().length ? businessNames().map(name => `<div class="acctrow biz-row"><input class="biz-rename" data-business="${esc(name)}" value="${esc(name)}" aria-label="Business name"><button class="linkbtn sm" type="button" data-save-business="${esc(name)}">Save</button><button class="linkbtn danger" type="button" data-remove-business="${esc(name)}">Remove</button></div>`).join('') : '<div class="sub">No businesses yet. Add Core Fix (or your company name) below.</div>'}</div>
     <div class="formrow"><label for="sBusinessName">New business</label><input id="sBusinessName" placeholder="e.g. Core Fix"><button class="primary sm" id="sAddBusiness">Add</button></div>
+    <h2 style="margin-top:18px">Recurring reminders</h2>
+    <div class="sub">Get a notification one day before each recurring expense is due. Ledger checks when you open the app; installed on your home screen, it can also remind you in the background where your browser allows.</div>
+    <div class="formrow"><label for="sRecurringReminders">Remind me</label>
+      <label style="min-width:auto;display:flex;align-items:center;gap:8px"><input type="checkbox" id="sRecurringReminders" style="flex:none" ${S.settings.recurringReminders ? 'checked' : ''}> One day before due</label>
+    </div>
+    <div class="formrow"><label>Notifications</label>
+      <span class="sub" id="reminderPermStatus">${!('Notification' in window) ? 'Not supported in this browser' : Notification.permission === 'granted' ? 'Allowed on this device' : Notification.permission === 'denied' ? 'Blocked — enable in browser settings' : 'Not enabled yet'}</span>
+      ${('Notification' in window && Notification.permission !== 'granted') ? '<button class="ghost sm" id="sEnableReminders" type="button">Allow notifications</button>' : ''}
+    </div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
     <div id="syncPanel" aria-live="polite"></div>
@@ -2316,12 +2418,31 @@ function showSettings() {
     if (inUse) { toast('Retag linked expenses first'); return; }
     delete S.businesses[name]; await DB.kvSet('businesses', S.businesses); renderAll(); showSettings(); toast(`${name} removed`);
   });
+  $('#sRecurringReminders')?.addEventListener('change', async (e) => {
+    const enabled = await setRecurringRemindersEnabled(e.target.checked);
+    e.target.checked = enabled;
+    const status = $('#reminderPermStatus');
+    if (status && 'Notification' in window) {
+      status.textContent = Notification.permission === 'granted' ? 'Allowed on this device' : Notification.permission === 'denied' ? 'Blocked — enable in browser settings' : 'Not enabled yet';
+    }
+  });
+  $('#sEnableReminders')?.addEventListener('click', async () => {
+    if (!('Notification' in window)) return;
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      await setRecurringRemindersEnabled(true);
+      $('#sRecurringReminders').checked = true;
+      toast('Notifications enabled');
+    } else toast('Notifications blocked');
+    showSettings();
+  });
   $('#sExport').onclick = exportJsonBackup;
   $('#sImport').onclick = triggerJsonImport;
   $('#sImportBackup').onclick = triggerJsonImport;
   $('#sWipe').onclick = async () => {
     if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, recurring expenses, and credit cards? This cannot be undone.')) return;
-    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], businesses: {}, settings: { base: S.settings.base, theme: S.settings.theme } });
+    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], businesses: {}, settings: { base: S.settings.base, theme: S.settings.theme, recurringReminders: S.settings.recurringReminders } });
+    await DB.kvSet('reminderLog', {}, false);
     S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar);
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
   };
@@ -2440,7 +2561,7 @@ async function boot() {
     try { await navigator.storage.persist(); } catch {}
   }
   S.tx = await DB.getAllTx(); S.txIds = new Set(S.tx.map(t => t.id));
-  S.settings = await DB.kvGet('settings', { base: 'CAD', theme: 'dark' });
+  S.settings = await DB.kvGet('settings', { base: 'CAD', theme: 'dark', recurringReminders: false });
   S.rates = await DB.kvGet('rates', []); S.budgets = await DB.kvGet('budgets', {}); S.rules = await DB.kvGet('rules', {});
   S.mappings = await DB.kvGet('mappings', {}); S.accounts = await DB.kvGet('accounts', {});
   S.jars = await DB.kvGet('jars', []); S.catJar = await DB.kvGet('catJar', {}); S.jarMoves = await DB.kvGet('jarMoves', []); S.jarAdjustments = await DB.kvGet('jarAdjustments', []);
@@ -2455,6 +2576,11 @@ async function boot() {
   applyTheme(S.settings.theme || 'dark');
   renderAll();
   if (typeof initSync === 'function') initSync();   // never block first paint on network
+  await syncReminderStateToSW();
+  await registerReminderBackgroundSync();
+  await checkRecurringReminders();
+  const params = new URLSearchParams(location.search);
+  if (params.get('view') && $(`nav button[data-view="${params.get('view')}"]`)) switchView(params.get('view'));
 }
 
 /* events */
@@ -2517,6 +2643,16 @@ document.addEventListener('keydown', (e) => {
 });
 ['fSearch', 'fAccount', 'fCategory', 'fBusiness', 'fFrom', 'fTo'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('input', renderTransactions); });
 $('#budgetMonth').addEventListener('input', renderBudgets);
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) checkRecurringReminders();
+});
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('message', async (e) => {
+    if (e.data?.type === 'OPEN_VIEW' && e.data.view) switchView(e.data.view);
+    if (e.data?.type === 'REMINDER_SENT' && e.data.sentLog) await saveReminderLog(e.data.sentLog);
+  });
+}
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW registration failed', e));
 if (navigator.storage?.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).then(p => console.log('storage persisted:', p));

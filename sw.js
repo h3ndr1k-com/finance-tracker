@@ -1,8 +1,11 @@
-const CACHE = 'ledger-v23';
+importScripts('./reminders.js');
+
+const CACHE = 'ledger-v24';
 const ASSETS = [
   './',
   './index.html',
   './sync.js',
+  './reminders.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -62,3 +65,49 @@ self.addEventListener('fetch', (e) => {
     })
   );
 });
+
+let reminderState = { enabled: false, subs: [], sentLog: {} };
+
+self.addEventListener('message', (e) => {
+  if (e.data?.type === 'REMINDER_SYNC') reminderState = e.data.payload || reminderState;
+  if (e.data?.type === 'REMINDER_CHECK') e.waitUntil(fireRecurringReminders(reminderState));
+});
+
+self.addEventListener('periodicsync', (e) => {
+  if (e.tag === 'recurring-reminders') e.waitUntil(fireRecurringReminders(reminderState));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = './' + (e.notification.data?.view ? `?view=${e.notification.data.view}` : '');
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    for (const client of clients) {
+      if ('focus' in client) {
+        client.postMessage({ type: 'OPEN_VIEW', view: e.notification.data?.view || 'subscriptions' });
+        return client.focus();
+      }
+    }
+    return self.clients.openWindow(url);
+  }));
+});
+
+async function fireRecurringReminders(state) {
+  if (!state?.enabled || !self.registration?.showNotification) return;
+  const tomorrow = reminderTomorrowISO();
+  const pending = pendingRecurringReminders(state.subs, tomorrow, state.sentLog);
+  for (const sub of pending) {
+    await self.registration.showNotification(`${sub.name} due tomorrow`, {
+      body: reminderBody(sub, sub.date),
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+      tag: reminderKey(sub),
+      renotify: true,
+      data: { view: 'subscriptions', key: reminderKey(sub) },
+    });
+    state.sentLog[reminderKey(sub)] = reminderTodayISO();
+  }
+  if (pending.length) {
+    const clients = await self.clients.matchAll({ includeUncontrolled: true });
+    for (const client of clients) client.postMessage({ type: 'REMINDER_SENT', sentLog: state.sentLog });
+  }
+}
