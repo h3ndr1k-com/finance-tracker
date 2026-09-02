@@ -66,7 +66,7 @@ async function buildSnapshot() {
     settings: { base: S.settings.base },        // theme is device-local, never leaves
     rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings,
     accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments,
-    subscriptions: S.subscriptions, creditCards: S.creditCards,
+    subscriptions: S.subscriptions, creditCards: S.creditCards, businesses: S.businesses,
     transactions: S.tx,
     meta: { txTomb: { ...m.txTomb }, kv: JSON.parse(JSON.stringify(m.kv)) },
   };
