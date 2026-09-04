@@ -198,10 +198,19 @@ button:focus-visible, .linkbtn:focus-visible, input:focus-visible, select:focus-
 }
 
 input, select {
-  font: inherit; font-size: 14px; color: var(--ink); background: var(--card);
-  border: 1px solid var(--hairline); border-radius: 8px; padding: 9px 11px; max-width: 100%;
-  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+font: inherit; font-size: 14px; color: var(--ink); background: var(--card);
+border: 1px solid var(--hairline); border-radius: 8px; padding: 9px 11px; max-width: 100%;
+transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
 }
+select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a8a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 12px;
+  padding-right: 32px;
+}
+select::-ms-expand { display: none; }
 input:focus, select:focus { border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 12%, transparent); }
 
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
@@ -381,7 +390,7 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 }
 
 .previewtable td, .previewtable th { padding: 5px 8px; font-size: 13px; cursor: default; }
-.catselect { border: none; background: transparent; color: var(--muted); font-size: 13px; padding: 2px 4px; cursor: pointer; }
+.catselect { border: none; background-color: transparent; color: var(--muted); font-size: 13px; padding: 2px 4px; cursor: pointer; }
 .catselect:hover { color: var(--ink); }
 .catselect:focus { box-shadow: none; }
 .toast {
@@ -413,7 +422,7 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .recrow .name .sub { display: block; }
 .recrow .biztag { flex: 0 1 38%; max-width: 220px; text-align: center; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recrow .num { flex: 0 0 auto; margin-left: auto; }
-.bizselect { background: transparent; border: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; max-width: 140px; text-overflow: ellipsis; }
+.bizselect { background-color: transparent; border: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; max-width: 140px; text-overflow: ellipsis; }
 .bizselect:focus { outline: 2px solid var(--accent-soft); border-radius: 6px; }
 .biz-row .biz-rename { flex: 1; min-width: 0; background: transparent; border: none; border-bottom: 1px solid var(--hairline); font: inherit; padding: 4px 0; }
 .biz-row .biz-rename:focus { outline: none; border-bottom-color: var(--accent); }
@@ -583,6 +592,7 @@ nav.tabbar button:active { transform: scale(.97); }
 .modal h2 { font-size: 28px; letter-spacing: -.035em; }
 input, select, button.ghost, button.primary { min-height: 42px; }
 input, select { background: color-mix(in srgb, var(--card) 94%, var(--raised)); }
+select { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a8a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>"); background-repeat: no-repeat; background-position: right 11px center; background-size: 12px; }
 button.primary, button.ghost, .fab { border-radius: var(--radius-sm); }
 .fab { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 .fab:hover { filter: none; background: var(--accent-hover); }
