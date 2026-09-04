@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#090909">
+<meta name="theme-color" content="#0e0e0e">
 <meta name="description" content="A private, local-first personal finance tracker for transactions, budgets, jars, and subscriptions.">
 <title>Ledger</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -40,64 +40,62 @@
 }
 :root {
   color-scheme: light;
-  --bg: #f2eee7;
-  --card: #fffdf8;
-  --raised: #ebe5dc;
-  --ink: #19231f;
-  --muted: #626b65;
-  --hairline: #d9d1c5;
-  --accent: #b94a34;
-  --accent-hover: #9c3725;
-  --accent-text: #963824;
-  --accent-soft: #f8ded4;
-  --on-accent: #fffaf4;
-  --coral: #b63d2d;
-  --coral-soft: #f8ddd7;
-  --positive: #24745a;
-  --positive-soft: #dbece4;
+  --bg: #f4f4f2;
+  --card: #ffffff;
+  --raised: #ececea;
+  --ink: #111111;
+  --muted: #6b6b6b;
+  --hairline: #e0e0de;
+  --accent: #c8ff00;
+  --accent-hover: #b6e600;
+  --accent-text: #6b7a00;
+  --accent-soft: #f0ffb0;
+  --on-accent: #111111;
+  --coral: #e5484d;
+  --coral-soft: #fbe0e1;
+  --positive: #2d9b6a;
+  --positive-soft: #dff3e9;
   --gold: #a46e19;
   --gold-soft: #f5e7c7;
-  --radius: 18px;
-  --radius-sm: 11px;
-  --shadow: 0 24px 70px -42px rgba(57, 43, 29, .38), 0 2px 8px rgba(57, 43, 29, .04);
-  --chart-1: #d8583c; --chart-2: #24745a; --chart-3: #d69a35; --chart-4: #6d70a8;
+  --radius: 22px;
+  --radius-sm: 12px;
+  --pill: 999px;
+  --shadow: 0 18px 48px -28px rgba(17, 17, 17, .22), 0 2px 6px rgba(17, 17, 17, .04);
+  --chart-1: #c8ff00; --chart-2: #2d9b6a; --chart-3: #9aa0a6; --chart-4: #6b7a00;
   --chart-5: #b96575; --chart-6: #4f8795; --chart-7: #92785d; --chart-8: #8d938d;
   --ease-out: cubic-bezier(.22, 1, .36, 1);
-  --display: 'Fraunces', ui-serif, "New York", Georgia, serif;
+  --display: 'Instrument Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --body: 'Instrument Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #101714;
-  --card: #17201c;
-  --raised: #202b26;
-  --ink: #f6f0e7;
-  --muted: #aeb8b1;
-  --hairline: #34413a;
-  --accent: #f27b5e;
-  --accent-hover: #ff9074;
-  --accent-text: #f27b5e;
-  --accent-soft: #3b2923;
-  --on-accent: #17110e;
-  --coral: #ff8d77;
-  --coral-soft: #3e2925;
-  --positive: #73c9a6;
-  --positive-soft: #1e3a30;
+  --bg: #0e0e0e;
+  --card: #1a1a1a;
+  --raised: #242424;
+  --ink: #f5f5f5;
+  --muted: #9a9a9a;
+  --hairline: #333333;
+  --accent: #c8ff00;
+  --accent-hover: #d6ff33;
+  --accent-text: #c8ff00;
+  --accent-soft: #2a3300;
+  --on-accent: #111111;
+  --coral: #ff6b6b;
+  --coral-soft: #2e1414;
+  --positive: #5fe0a8;
+  --positive-soft: #0f2a1e;
   --gold: #e2b65f;
   --gold-soft: #3c3320;
-  --shadow: 0 30px 80px -40px rgba(0,0,0,.82), 0 2px 10px rgba(0,0,0,.22);
-  --chart-1: #f27b5e; --chart-2: #73c9a6; --chart-3: #e2b65f; --chart-4: #a8a9e8;
+  --shadow: 0 26px 70px -38px rgba(0, 0, 0, .82), 0 2px 8px rgba(0, 0, 0, .22);
+  --chart-1: #c8ff00; --chart-2: #5fe0a8; --chart-3: #9aa0a6; --chart-4: #d6ff33;
   --chart-5: #df8fa2; --chart-6: #82bdc9; --chart-7: #c3a17e; --chart-8: #929c96;
 }
 * { box-sizing: border-box; margin: 0; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 button, .iconbtn, nav button, .linkbtn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 body {
-  background:
-    radial-gradient(circle at 8% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34rem),
-    radial-gradient(circle at 96% 18%, color-mix(in srgb, var(--positive) 8%, transparent), transparent 30rem),
-    var(--bg);
+  background: var(--bg);
   color: var(--ink);
   font: 15px/1.5 var(--body);
   padding-bottom: env(safe-area-inset-bottom);
@@ -106,32 +104,33 @@ body {
 }
 ::selection { background: var(--accent); color: var(--on-accent); }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.serif { font-family: var(--display); letter-spacing: -0.015em; }
+.serif { font-family: var(--display); letter-spacing: -0.02em; }
 
 header {
   position: sticky; top: 0; z-index: 20;
-  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(20px) saturate(1.2); -webkit-backdrop-filter: blur(20px) saturate(1.2);
   border-bottom: 1px solid var(--hairline);
   padding: 0 18px; padding-top: env(safe-area-inset-top);
-  display: flex; align-items: center; gap: 8px; height: calc(64px + env(safe-area-inset-top));
+  display: flex; align-items: center; gap: 12px; height: calc(64px + env(safe-area-inset-top));
 }
-header h1 { font-family: var(--display); font-size: 24px; font-weight: 680; letter-spacing: -0.045em; }
-.brandlockup { display: flex; align-items: center; gap: 10px; margin-right: 28px; white-space: nowrap; }
+header h1 { font-family: var(--display); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.brandlockup { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .brandmark {
-  width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px;
-  background: var(--accent); color: var(--on-accent); box-shadow: inset 0 1px rgba(255,255,255,.24);
-  font: italic 700 18px/1 var(--display); transform: rotate(-3deg);
+  width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; line-height: 0;
 }
-nav.topnav { display: flex; gap: 2px; flex: 1; }
+.brandmark svg { display: block; }
+nav.topnav { display: flex; gap: 2px; flex: 1; justify-content: center; background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--pill); padding: 4px; width: max-content; max-width: 100%; margin: 0 auto; overflow-x: auto; scrollbar-width: none; }
+nav.topnav::-webkit-scrollbar { display: none; }
 nav.topnav button {
   background: none; border: none; color: var(--muted); font: inherit; font-size: 14px;
-  padding: 8px 13px; border-radius: 8px; cursor: pointer; transition: color .16s ease, background-color .16s ease, transform .16s ease;
+  padding: 8px 16px; border-radius: var(--pill); cursor: pointer; transition: color .16s ease, background-color .16s ease, transform .16s ease; white-space: nowrap; flex: none;
 }
-nav.topnav button:hover { color: var(--ink); background: color-mix(in srgb, var(--raised) 70%, transparent); }
-nav.topnav button.active { color: var(--accent-text); background: var(--accent-soft); font-weight: 650; }
-.iconbtn { background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer; font-size: 16px; min-width: 38px; min-height: 38px; padding: 7px 9px; border-radius: 8px; transition: color .16s ease, background-color .16s ease, border-color .16s ease, transform .16s ease; }
-.iconbtn:hover { background: var(--accent-soft); border-color: var(--hairline); color: var(--ink); transform: translateY(-1px); }
+nav.topnav button:hover { color: var(--ink); background: color-mix(in srgb, var(--card) 50%, transparent); }
+nav.topnav button.active { color: var(--ink); background: var(--card); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); display: inline-flex; align-items: center; gap: 6px; }
+nav.topnav button.active::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.iconbtn { background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer; font-size: 16px; min-width: 38px; min-height: 38px; padding: 7px 9px; border-radius: 50%; transition: color .16s ease, background-color .16s ease, border-color .16s ease, transform .16s ease; }
+.iconbtn:hover { background: var(--raised); border-color: var(--hairline); color: var(--ink); transform: translateY(-1px); }
 
 main { width: 100%; max-width: 1240px; margin: 0 auto; padding: 24px 16px 110px; }
 .view { display: none; }
@@ -151,23 +150,23 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; padding: 24px 16px 110px;
 }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; }
 .grid2 > .card { margin-bottom: 0; }
+.kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: stretch; }
+.kpi-row > .card { margin-bottom: 0; }
 .gridrow { margin-bottom: 16px; }
 .jargrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
-@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } .kpi-row { grid-template-columns: 1fr; } }
 
 .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; margin-bottom: 7px; }
 .cardhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .cardhead .label { margin-bottom: 0; }
 .hero {
   position: relative; overflow: hidden;
-  background:
-    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 22rem),
-    linear-gradient(135deg, color-mix(in srgb, var(--card) 98%, transparent), color-mix(in srgb, var(--positive-soft) 45%, var(--card)));
+  background: var(--card);
 }
-.hero::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--accent), var(--gold), var(--positive)); }
-.hero .big { font-family: var(--display); font-size: clamp(40px, 6vw, 64px); font-weight: 650; line-height: 1; letter-spacing: -0.04em; }
+.hero::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--accent); }
+.hero .big { font-family: var(--display); font-size: clamp(40px, 6vw, 64px); font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
 .hero .spark { margin: 14px -20px -20px; display: block; }
-.mid { font-family: var(--display); font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.mid { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
 .sub { font-size: 13px; color: var(--muted); }
 .pos { color: var(--positive); } .neg { color: var(--coral); }
 
@@ -176,17 +175,17 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; padding: 24px 16px 110px;
 .delta.up { background: var(--coral-soft); color: var(--coral); }
 
 button.primary {
-  background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); border-radius: 8px;
+  background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); border-radius: var(--pill);
   padding: 10px 19px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
   transition: transform .16s ease, opacity .16s ease, background-color .16s ease;
 }
 button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); transform: translateY(-1px); }
 button.primary:active { transform: translateY(1px) scale(.99); }
 button.ghost {
-  background: var(--card); border: 1px solid var(--hairline); color: var(--ink); border-radius: 8px;
+  background: var(--card); border: 1px solid var(--hairline); color: var(--ink); border-radius: var(--pill);
   padding: 9px 16px; font: inherit; font-size: 14px; cursor: pointer; transition: transform .16s ease, border-color .16s ease, background-color .16s ease;
 }
-button.ghost:hover { border-color: var(--ink); background: var(--accent-soft); transform: translateY(-1px); }
+button.ghost:hover { border-color: var(--ink); background: var(--raised); transform: translateY(-1px); }
 button.ghost.sm, button.primary.sm { padding: 6px 11px; font-size: 13px; }
 button.danger { border-color: color-mix(in srgb, var(--coral) 50%, var(--hairline)); color: var(--coral); }
 button:disabled { opacity: 0.5; cursor: default; }
@@ -199,7 +198,7 @@ button:focus-visible, .linkbtn:focus-visible, input:focus-visible, select:focus-
 
 input, select {
   font: inherit; font-size: 14px; color: var(--ink); background: var(--card);
-  border: 1px solid var(--hairline); border-radius: 8px; padding: 9px 11px; max-width: 100%;
+  border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 9px 11px; max-width: 100%;
   transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
 }
 input:focus, select:focus { border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 12%, transparent); }
@@ -250,12 +249,12 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .fab {
   position: fixed; right: 18px; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 25;
   display: inline-flex; align-items: center; gap: 7px;
-  background: var(--ink); color: var(--bg); border: 1px solid color-mix(in srgb, var(--card) 24%, transparent);
-  border-radius: 8px; padding: 11px 15px; font: 600 14px var(--body); cursor: pointer;
-  box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--ink) 55%, transparent);
-  transition: transform .15s, filter .15s;
+  background: var(--accent); color: var(--on-accent); border: 1px solid transparent;
+  border-radius: var(--pill); padding: 12px 18px; font: 600 14px var(--body); cursor: pointer;
+  box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: transform .15s, filter .15s, background-color .15s;
 }
-.fab:hover { filter: brightness(1.12); transform: translateY(-2px); }
+.fab:hover { filter: brightness(1.05); background: var(--accent-hover); transform: translateY(-2px); }
 .fab:active { transform: translateY(1px) scale(.98); }
 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
@@ -283,7 +282,7 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
   padding: 24px; width: 100%; max-width: 660px; margin: auto 0; box-shadow: var(--shadow);
   animation: fadeUp .3s cubic-bezier(.2,.7,.2,1) both;
 }
-.modal h2 { font-family: var(--display); font-size: 20px; margin-bottom: 4px; }
+.modal h2 { font-family: var(--display); font-size: 20px; font-weight: 700; margin-bottom: 4px; }
 .modal .sub { margin-bottom: 14px; }
 .formrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .formrow label { font-size: 13px; color: var(--muted); min-width: 90px; }
@@ -325,7 +324,7 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .budget-toolbar .formrow { margin: 0; }
 .budget-dashboard { padding-bottom: 18px; }
 .budget-dashboard .cardhead { margin-bottom: 4px; }
-.budget-total { font: 650 clamp(28px, 5vw, 42px)/1 var(--display); letter-spacing: -.04em; }
+.budget-total { font: 700 clamp(28px, 5vw, 42px)/1 var(--display); letter-spacing: -.02em; }
 .budget-donutwrap { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin-top: 16px; }
 .budget-donut { flex: none; width: min(178px, 44vw); height: auto; }
 .budget-donut .slice { cursor: pointer; transition: opacity .16s ease; }
@@ -352,19 +351,19 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 .credit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 16px; }
 .credit-grid .card { margin-bottom: 0; }
 .credit-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.credit-balance { font: 650 clamp(30px, 5vw, 44px)/1 var(--display); letter-spacing: -.04em; margin-top: 9px; }
+.credit-balance { font: 700 clamp(30px, 5vw, 44px)/1 var(--display); letter-spacing: -.02em; margin-top: 9px; }
 .credit-plan { margin-top: 19px; padding-top: 16px; border-top: 1px solid var(--hairline); }
 .credit-plan label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
 .credit-plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .credit-plan input { width: 100%; }
 .credit-result { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
 .credit-result > div { border-top: 1px solid var(--hairline); padding-top: 10px; }
-.credit-result strong { display: block; font: 600 20px/1.1 var(--display); letter-spacing: -.02em; margin-top: 3px; }
+.credit-result strong { display: block; font: 700 20px/1.1 var(--display); letter-spacing: -.02em; margin-top: 3px; }
 .credit-note { margin-top: 15px; font-size: 12px; color: var(--muted); }
 .credit-note.warn { color: var(--coral); }
 .jar-detail-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
 .jar-detail-summary > div { border-top: 1px solid var(--hairline); padding-top: 9px; }
-.jar-detail-summary strong { display: block; font: 600 21px/1.08 var(--display); letter-spacing: -.02em; margin-top: 3px; }
+.jar-detail-summary strong { display: block; font: 700 21px/1.08 var(--display); letter-spacing: -.02em; margin-top: 3px; }
 .jar-detail-adjust { padding: 15px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); margin: 18px 0; }
 .jar-detail-adjust .formrow { margin-bottom: 0; }
 .jar-detail-activity { max-height: 340px; overflow-y: auto; }
@@ -457,7 +456,7 @@ progress { width: 100%; accent-color: var(--accent); }
 .jarcard .jtop { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .jarcard .jname { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jarcard .jpct { font-size: 12px; color: var(--muted); }
-.jarcard .jbal { font-family: var(--display); font-size: 22px; font-weight: 600; }
+.jarcard .jbal { font-family: var(--display); font-size: 22px; font-weight: 700; }
 .jarcard .jspend { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .jarcard .jedit { position: absolute; top: 10px; right: 10px; opacity: 0; transition: opacity .15s; }
 .jarcard:hover .jedit { opacity: 1; }
@@ -554,11 +553,11 @@ nav.tabbar button:active { transform: scale(.97); }
 }
 .skip-link:focus { transform: translateY(0); }
 #app-shell::before {
-  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; opacity: .22;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E");
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; opacity: 0;
+  background-image: none;
 }
 .view-heading { margin: 4px 2px 22px; }
-.view-heading h2 { font: 670 clamp(30px, 4vw, 46px)/1.05 var(--display); letter-spacing: -.04em; text-wrap: balance; }
+.view-heading h2 { font: 700 clamp(30px, 4vw, 46px)/1.05 var(--display); letter-spacing: -.02em; text-wrap: balance; }
 .view-heading p { color: var(--muted); margin-top: 7px; max-width: 62ch; }
 .iconbtn { border-radius: var(--radius-sm); }
 .iconbtn:hover { transform: none; border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline)); }
@@ -578,9 +577,9 @@ nav.tabbar button:active { transform: scale(.97); }
 .pill { border-radius: 6px; }
 .jartag { border-radius: 7px; }
 .bartrack { background: color-mix(in srgb, var(--raised) 82%, transparent); }
-.modal-backdrop { background: color-mix(in srgb, #07100c 72%, transparent); }
-.modal { border-radius: 24px; box-shadow: 0 40px 120px -32px rgba(0,0,0,.72); }
-.modal h2 { font-size: 28px; letter-spacing: -.035em; }
+.modal-backdrop { background: color-mix(in srgb, #000000 72%, transparent); }
+.modal { border-radius: var(--radius); box-shadow: 0 40px 120px -32px rgba(0,0,0,.72); }
+.modal h2 { font-size: 28px; letter-spacing: -.02em; font-weight: 700; }
 input, select, button.ghost, button.primary { min-height: 42px; }
 input, select { background: color-mix(in srgb, var(--card) 94%, var(--raised)); }
 button.primary, button.ghost, .fab { border-radius: var(--radius-sm); }
@@ -630,6 +629,38 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   #view-overview.active > .card { margin-bottom: 0; }
   #view-overview.active > .fab { position: fixed; }
 }
+
+/* Split list/detail panel system (desktop >=1100px) */
+.split-view { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+.split-view .split-list { background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
+.split-view .split-list .split-list-head { padding: 14px 18px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.split-view .split-detail { background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius); padding: 22px; position: sticky; top: calc(82px + env(safe-area-inset-top)); }
+.split-view .split-detail.empty { display: grid; place-items: center; min-height: 320px; color: var(--muted); text-align: center; }
+.list-row { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--hairline); cursor: pointer; transition: background .14s ease; }
+.list-row:last-child { border-bottom: none; }
+.list-row:hover { background: color-mix(in srgb, var(--raised) 60%, transparent); }
+.list-row.selected { background: var(--ink); color: var(--bg); }
+.list-row.selected .list-row-sub { color: color-mix(in srgb, var(--bg) 70%, transparent); }
+.list-row .list-row-avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; flex: none; }
+.list-row .list-row-main { flex: 1; min-width: 0; }
+.list-row .list-row-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row .list-row-sub { font-size: 12px; color: var(--muted); }
+.list-row .list-row-amount { text-align: right; white-space: nowrap; font-family: var(--mono); font-size: 14px; }
+.list-row .list-row-pills { display: flex; gap: 6px; margin-top: 3px; justify-content: flex-end; }
+.sort-btn { background: none; border: 1px solid transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: var(--pill); cursor: pointer; transition: color .14s, background .14s, border-color .14s; }
+.sort-btn:hover { color: var(--ink); background: color-mix(in srgb, var(--card) 60%, transparent); }
+.sort-btn.active { color: var(--ink); background: var(--card); border-color: var(--hairline); }
+.list-row.selected-bulk { box-shadow: inset 3px 0 0 var(--accent); }
+@media (min-width: 1100px) {
+  .split-view { grid-template-columns: 1fr 1fr; }
+  .split-view.wide-list { grid-template-columns: 1.1fr .9fr; }
+  .split-view.narrow-list { grid-template-columns: .9fr 1.1fr; }
+  .split-view .split-list { max-height: calc(100dvh - 160px); overflow-y: auto; }
+}
+@media (max-width: 1099px) {
+  .split-view .split-detail { position: static; }
+  .split-view .split-detail.empty { display: none; }
+}
 </style>
 </head>
 <body>
@@ -638,7 +669,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
 <a class="skip-link" href="#main-content">Skip to content</a>
 
 <header>
-  <div class="brandlockup"><span class="brandmark" aria-hidden="true">L</span><h1>Ledger</h1></div>
+  <div class="brandlockup"><span class="brandmark" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" focusable="false"><rect width="24" height="24" rx="8" fill="#111111"/><text x="12" y="12.5" text-anchor="middle" dominant-baseline="central" font-family="ui-sans-serif, system-ui, sans-serif" font-size="17" font-weight="700" fill="#ffffff">$</text></svg></span><h1>Ledger</h1></div>
   <nav class="topnav" aria-label="Primary">
     <button type="button" data-view="overview" class="active" aria-current="page">Overview</button>
     <button type="button" data-view="transactions">Transactions</button>
@@ -1957,11 +1988,12 @@ function renderOverview() {
       <div class="sub" style="margin-top:4px">across ${Object.keys(byAcct).length} accounts, shown in ${base} · hover or drag the line</div>
       ${sparkline(days)}
     </div>
-    <div class="grid2 gridrow">
+    <div class="kpi-row gridrow">
       <div class="card"><div class="label">${monthLabel(mk)} income</div><div class="mid num pos cu" data-v="${cur.income}">${baseFmt(cur.income)}</div></div>
       <div class="card"><div class="label">${monthLabel(mk)} spend</div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap"><div class="mid num cu" data-v="${cur.expense}">${baseFmt(cur.expense)}</div>${delta !== null ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(0)}%</span>` : ''}</div>
         <div class="sub num">${prev.expense ? `${monthLabel(pm)}: ${baseFmt(prev.expense)}` : 'no data last month'}</div></div>
+      <div class="card"><div class="label">Recurring monthly</div><div class="mid num cu" data-v="${recTotal + manualRecurring}">${baseFmt(recTotal + manualRecurring)}</div><div class="sub num">${recurring.length + S.subscriptions.length} active</div></div>
     </div>
     <div class="grid2 gridrow">
       <div class="card"><div class="label">Spending · ${monthLabel(mk)}</div>
@@ -2044,6 +2076,7 @@ function openRecurringDetail(r) {
 /* ---------- transactions ---------- */
 let sortCol = 'date', sortDir = -1;
 const selected = new Set();
+let selectedTxId = null;
 function renderTransactions() {
   const acctSel = $('#fAccount'), catSel = $('#fCategory'), bizSel = $('#fBusiness');
   const keepA = acctSel.value, keepC = catSel.value, keepB = bizSel?.value || '';
@@ -2055,33 +2088,65 @@ function renderTransactions() {
   const list = S.tx.filter(t => (!q || t.desc.toLowerCase().includes(q)) && (!fa || t.account === fa) && (!fc || t.category === fc) && (!fb || (fb === '__personal' ? !t.business : t.business === fb)) && (!ff || t.date >= ff) && (!ft || t.date <= ft));
   list.sort((a, b) => { let va = a[sortCol], vb = b[sortCol]; if (sortCol === 'amount') { va = toBase(a.amount, a.currency); vb = toBase(b.amount, b.currency); } if (sortCol === 'business') { va = a.business || ''; vb = b.business || ''; } return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir; });
   const arrow = (c) => sortCol === c ? (sortDir > 0 ? ' ↑' : ' ↓') : '';
-  const rows = list.slice(0, 500).map(t => {
-    const conv = toBase(t.amount, t.currency); const same = t.currency === S.settings.base; const jid = txJar(t); const jar = jarById(jid);
-    return `<tr data-id="${t.id}" class="${selected.has(t.id) ? 'sel' : ''} ${t.transfer ? 'xfer' : ''}">
-      <td class="selcol"><input type="checkbox" class="rowchk" data-id="${t.id}" ${selected.has(t.id) ? 'checked' : ''} style="cursor:pointer"></td>
-      <td class="num sub" style="white-space:nowrap">${t.date}</td>
-      <td>${esc(t.desc)}${t.source === 'receipt' ? ' <span class="pill">receipt</span>' : ''}${t.transfer ? ' <span class="pill grey">transfer</span>' : ''}</td>
-      <td class="bizcol">${businessSelectHtml(t.business, t.id)}</td>
-      <td>${t.transfer ? '<span class="sub">-</span>' : `<span class="jartag" data-jar-id="${t.id}">${jar ? esc(jar.name) : 'set jar'}</span>`}</td>
-      <td class="sub">${esc(t.account)}</td>
-      <td class="amt num ${t.amount >= 0 ? 'pos' : ''}" title="${esc(rateTooltip(t.currency))}">${fmtMoney(t.amount, t.currency, { plus: true })}${same ? '' : `<br><span class="sub num">${baseFmt(conv, { plus: true })}</span>`}</td>
-    </tr>`;
+  const shown = list.slice(0, 500);
+  const sortBtn = (c, label) => `<button class="sort-btn${sortCol === c ? ' active' : ''}" data-sort="${c}">${label}${arrow(c)}</button>`;
+  const rows = shown.map(t => {
+    const conv = toBase(t.amount, t.currency); const same = t.currency === S.settings.base; const jar = jarById(txJar(t));
+    const pills = `${t.source === 'receipt' ? '<span class="pill">receipt</span>' : ''}${t.transfer ? '<span class="pill grey">transfer</span>' : ''}`;
+    return `<div class="list-row ${selectedTxId === t.id ? 'selected' : ''}" data-id="${t.id}">
+      <input type="checkbox" class="rowchk" data-id="${t.id}" ${selected.has(t.id) ? 'checked' : ''} style="cursor:pointer;flex:none" onclick="event.stopPropagation()">
+      <span class="list-row-avatar" style="background:${acctColor(t.account)}">${esc(acctInitials(t.account))}</span>
+      <span class="list-row-main">
+        <span class="list-row-title">${esc(t.desc)}</span>
+        <span class="list-row-sub">${t.date} · ${esc(t.account)}${t.business ? ' · ' + esc(t.business) : ''}${jar ? ' · ' + esc(jar.name) : ''}</span>
+      </span>
+      <span class="list-row-amount ${t.amount >= 0 ? 'pos' : ''}" title="${esc(rateTooltip(t.currency))}">${fmtMoney(t.amount, t.currency, { plus: true })}${same ? '' : `<br><span class="list-row-sub num">${baseFmt(conv, { plus: true })}</span>`}</span>
+      ${pills ? `<span class="list-row-pills">${pills}</span>` : ''}
+    </div>`;
   }).join('');
-  $('#txTableWrap').innerHTML = list.length ? `
-    <table id="txTable"><thead><tr>
-      <th class="selcol"><input type="checkbox" id="chkAll" style="cursor:pointer"></th>
-      <th data-sort="date">Date${arrow('date')}</th><th data-sort="desc">Description${arrow('desc')}</th>
-      <th data-sort="business">Business${arrow('business')}</th><th>Jar</th><th data-sort="account">Account${arrow('account')}</th>
-      <th data-sort="amount" class="amt">Amount${arrow('amount')}</th>
-    </tr></thead><tbody>${rows}</tbody></table>${list.length > 500 ? `<div class="sub" style="padding:10px">Showing 500 of ${list.length}, narrow the filters.</div>` : ''}`
-    : '<div class="empty">No matching transactions.</div>';
+  const sel = selectedTxId ? S.tx.find(t => t.id === selectedTxId) : null;
+  $('#txTableWrap').innerHTML = `
+    <div class="split-view">
+      <div class="split-list">
+        <div class="split-list-head">
+          <div class="label" style="margin:0">${list.length} transaction${list.length === 1 ? '' : 's'}${list.length > 500 ? ' · showing 500' : ''}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">${sortBtn('date','Date')}${sortBtn('desc','Description')}${sortBtn('amount','Amount')}${sortBtn('account','Account')}</div>
+        </div>
+        <div id="txTable">${list.length ? rows : '<div class="empty">No matching transactions.</div>'}</div>
+      </div>
+      <div class="split-detail${sel ? '' : ' empty'}" id="txDetail">${txDetailHtml(sel)}</div>
+    </div>`;
 
-  $$('#txTable th[data-sort]').forEach(th => th.onclick = () => { const c = th.dataset.sort; if (sortCol === c) sortDir = -sortDir; else { sortCol = c; sortDir = c === 'date' ? -1 : 1; } renderTransactions(); });
-  $$('#txTable .bizselect').forEach(sel => { sel.onclick = (e) => e.stopPropagation(); sel.onchange = async (e) => { e.stopPropagation(); const t = S.tx.find(x => x.id === sel.dataset.id); if (!t) return; const v = sel.value; if (v) await ensureBusiness(v); t.business = v; await DB.putTx([t]); toast(v ? `"${t.desc.slice(0, 24)}" → ${v}` : 'Marked personal'); renderOverview(); renderSubscriptions(); renderTransactions(); }; });
-  $$('#txTable .rowchk').forEach(chk => chk.onclick = (e) => { e.stopPropagation(); if (chk.checked) selected.add(chk.dataset.id); else selected.delete(chk.dataset.id); syncBulk(); chk.closest('tr').classList.toggle('sel', chk.checked); });
-  $$('#txTable .jartag').forEach(tag => tag.onclick = (e) => { e.stopPropagation(); openJarPicker(tag.dataset.jarId, tag); });
-  const chkAll = $('#chkAll'); if (chkAll) chkAll.onclick = () => { list.slice(0, 500).forEach(t => chkAll.checked ? selected.add(t.id) : selected.delete(t.id)); renderTransactions(); syncBulk(); };
+  $$('#txTableWrap .sort-btn').forEach(btn => btn.onclick = () => { const c = btn.dataset.sort; if (sortCol === c) sortDir = -sortDir; else { sortCol = c; sortDir = c === 'date' ? -1 : 1; } renderTransactions(); });
+  $$('#txTableWrap .list-row').forEach(row => row.onclick = (e) => { if (e.target.classList.contains('rowchk')) return; selectedTxId = row.dataset.id; renderTransactions(); });
+  $$('#txTableWrap .rowchk').forEach(chk => chk.onclick = (e) => { e.stopPropagation(); if (chk.checked) selected.add(chk.dataset.id); else selected.delete(chk.dataset.id); syncBulk(); });
+  wireTxDetail(sel);
   syncBulk();
+}
+function txDetailHtml(t) {
+  if (!t) return '<div><div class="serif" style="font-size:18px;margin-bottom:6px">Select a transaction</div><div class="sub">Pick a row to see its details, edit fields, or delete it here.</div></div>';
+  const conv = toBase(t.amount, t.currency); const same = t.currency === S.settings.base;
+  return `
+    <div class="cardhead"><div class="label" style="margin:0">Transaction detail</div><span class="pill grey">#${esc(t.id.slice(-6))}</span></div>
+    <div class="serif" style="font-size:20px;font-weight:700;margin-bottom:4px">${esc(t.desc)}</div>
+    <div class="sub" style="margin-bottom:16px">${t.date} · ${esc(t.account)}${t.transfer ? ' · transfer' : ''}${t.source === 'receipt' ? ' · receipt' : ''}</div>
+    <div class="num ${t.amount >= 0 ? 'pos' : 'neg'}" style="font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:-.02em;margin-bottom:16px">${fmtMoney(t.amount, t.currency, { plus: true })}${same ? '' : `<div class="sub num" style="margin-top:4px">${baseFmt(conv, { plus: true })} ${S.settings.base}</div>`}</div>
+    <div class="formrow"><label>Category</label>${categoryFieldHtml(t.category, 'dCat', 'dCatCustom')}</div>
+    <div class="formrow"><label>Business</label>${businessFieldHtml(t.business || '', 'dBusiness')}</div>
+    <div class="formrow"><label>Jar</label><select id="dJar"><option value="">Auto (${esc((jarById(S.catJar[t.category]) || {name:'none'}).name)})</option>${S.jars.map(j => `<option value="${j.id}" ${t.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
+    <div class="formrow" style="justify-content:space-between;margin-top:18px">
+      <button class="ghost danger" id="dDelete">Delete</button>
+      <button class="ghost" id="dEdit">Edit</button>
+    </div>`;
+}
+function wireTxDetail(t) {
+  if (!t) return;
+  wireCategoryCustom('#dCat', '#dCatCustom');
+  $('#dCat').onchange = async () => { t.category = readCategory('#dCat', '#dCatCustom') || 'Other'; await learnRule(t.desc, t.category); await DB.putTx([t]); toast(`Category → ${t.category}`); renderOverview(); renderTransactions(); };
+  $('#dBusiness').onchange = async () => { const v = await readBusiness('#dBusiness'); t.business = v || ''; await DB.putTx([t]); toast(`Business → ${t.business || 'personal'}`); renderOverview(); renderSubscriptions(); renderTransactions(); };
+  $('#dJar').onchange = async () => { t.jar = $('#dJar').value || null; await DB.putTx([t]); toast(`Jar → ${t.jar ? jarById(t.jar).name : 'auto'}`); renderTransactions(); renderJars(); };
+  $('#dEdit').onclick = () => openTxModal(t);
+  $('#dDelete').onclick = async () => { if (!confirm('Delete this transaction?')) return; await deleteTransactions([t.id]); selectedTxId = null; toast('Transaction deleted'); };
 }
 function openJarPicker(txId, anchor) {
   const t = S.tx.find(x => x.id === txId); if (!t) return;
@@ -2596,7 +2661,7 @@ function switchView(view) {
 $$('nav button[data-view]').forEach(b => b.onclick = () => switchView(b.dataset.view));
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
-  document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#101714' : '#f2eee7';
+  document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#0e0e0e' : '#f4f4f2';
   const btn = $('#themeBtn');
   if (btn) {
     const next = t === 'dark' ? 'light' : 'dark';
