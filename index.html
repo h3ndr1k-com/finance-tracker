@@ -2151,7 +2151,6 @@ function renderJars() {
             <button class="iconbtn jedit" data-edit-jar="${j.id}" aria-label="Edit ${esc(j.name)} jar">✎</button>
             <div class="jtop"><span class="dot" style="background:${j.color};width:11px;height:11px"></span><span class="jname">${esc(j.name)}</span><span class="jpct">${j.pct}%</span></div>
             <div class="jbal num cu ${bal[j.id] < 0 ? 'neg' : ''}" data-v="${bal[j.id]}">${baseFmt(bal[j.id])}</div>
-            <div class="jspend num">this mo: +${baseFmt(alloc)} in · −${baseFmt(spend)} out</div>
           </div>`;
         }).join('')}
       </div>
