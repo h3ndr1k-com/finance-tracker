@@ -1641,7 +1641,7 @@ function renderSubscriptions() {
           <span class="dot" style="background:${catColor(s.category)}"></span>
           <span class="name">${esc(s.name)}<span class="sub">${esc(s.account)} · due ${dayLabel(s.date)}</span></span>
           ${bizTagHtml(s.business)}
-          <span class="num" style="text-align:right;white-space:nowrap">
+          <span class="num" style="text-align:right;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:2px">
             ${fmtMoney(s.amount, s.currency)}${freqSuffix}
             ${s.currency !== S.settings.base ? `<span class="sub num">${baseFmt(monthlyEquivalent)}/mo equivalent</span>` : ''}
           </span>
@@ -1665,7 +1665,7 @@ function renderSubscriptions() {
         <span class="dot" style="background:${catColor(r.cat)}"></span>
         <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly</span></span>
         ${bizTagHtml(r.business)}
-        <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span>
+        <span class="num" style="text-align:right;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:2px">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span>
       </div>`).join('');
       
     $$('.det-sub-row').forEach(row => {
@@ -1987,7 +1987,7 @@ function renderOverview() {
         <div class="recrow" data-i="${i}"><span class="dot" style="background:${catColor(r.cat)}"></span>
           <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.manual ? 'manual recurring' : `${r.count}× monthly`}</span></span>
           ${bizTagHtml(r.business)}
-          <span class="num" style="text-align:right;white-space:nowrap">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.monthly * 12)}/yr</span></span></div>`).join('')}</div>`
+          <span class="num" style="text-align:right;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:2px">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.monthly * 12)}/yr</span></span></div>`).join('')}</div>`
         : '<div class="sub">No recurring charges yet. Add one under Recurring or import a few months of activity.</div>'}
     </div>
     <div class="card">
