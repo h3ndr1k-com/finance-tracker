@@ -620,6 +620,16 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   .site-footer { flex-direction: column; align-items: flex-start; margin-bottom: 86px; }
   .modal-backdrop { padding: 12px 8px; }
   .modal { padding: 21px; border-radius: 20px; }
+  /* Transactions table: hide secondary columns on mobile, keep date/description/amount */
+  #txTable th:nth-child(1), #txTable td:nth-child(1),  /* checkbox */
+  #txTable th:nth-child(4), #txTable td:nth-child(4),  /* business */
+  #txTable th:nth-child(5), #txTable td:nth-child(5),  /* jar */
+  #txTable th:nth-child(6), #txTable td:nth-child(6)   /* account */
+    { display: none; }
+  #txTable { font-size: 13px; }
+  #txTable th, #txTable td { padding: 8px 6px; }
+  td.amt { padding-right: 10px; }
+  th.amt { padding-right: 10px; }
 }
 
 @media (min-width: 760px) {
