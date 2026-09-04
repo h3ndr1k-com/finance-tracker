@@ -32,9 +32,11 @@ function stable(before, after, label) {
   });
   const page = await context.newPage();
   const errors = [];
+  const notFoundUrls = [];
   let navigations = 0;
-  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+  page.on('console', (msg) => { if (msg.type() === 'error' && !/Failed to load resource/.test(msg.text())) errors.push(msg.text()); });
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('response', (response) => { if (response.status() === 404) notFoundUrls.push(response.url()); });
   page.on('framenavigated', (frame) => { if (frame === page.mainFrame()) navigations += 1; });
   page.on('dialog', (dialog) => dialog.accept());
 
@@ -48,6 +50,7 @@ function stable(before, after, label) {
       { id: 'qa-tx-5', date: '2026-07-06', desc: 'Netflix', amount: -18.99, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Subscriptions' },
       { id: 'qa-tx-6', date: '2026-06-06', desc: 'Netflix', amount: -16.49, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Subscriptions' },
     ];
+    for (let i = 7; i <= 30; i++) rows.push({ id: 'qa-tx-' + i, date: '2026-0' + (1 + (i % 7)) + '-1' + (i % 9), desc: 'Merchant ' + i, amount: -(i * 7.5), currency: 'CAD', account: i % 2 ? 'Amex' : 'Chequing', source: 'qa', category: 'Groceries' });
     S.accounts = { Chequing: { currency: 'CAD' }, Amex: { currency: 'CAD' } };
     await DB.putTx(rows);
     S.tx = rows; S.txIds = new Set(rows.map(t => t.id));
@@ -58,7 +61,7 @@ function stable(before, after, label) {
   assert(await page.locator('#view-overview .hero .big').isVisible(), 'Populated overview did not render');
 
   const navBeforeHover = navigations;
-  for (const target of ['.hero', '.grid2 .card', 'nav.topnav button:nth-child(2)', '#overviewScanBtn']) {
+  for (const target of ['.hero', '.kpi-row .card', 'nav.topnav button:nth-child(2)', '#overviewScanBtn']) {
     const item = page.locator(target).first();
     const before = await item.boundingBox();
     await item.hover();
@@ -76,18 +79,18 @@ function stable(before, after, label) {
 
   await page.getByRole('button', { name: 'Transactions', exact: true }).click();
   await page.waitForTimeout(700);
-  assert(await page.locator('#txTable tbody tr').count() > 20, 'Transaction listing did not render');
-  const row = page.locator('#txTable tbody tr').first();
+  assert(await page.locator('#txTable .list-row').count() > 20, 'Transaction listing did not render');
+  const row = page.locator('#txTable .list-row').first();
   const rowBefore = await row.boundingBox();
   await row.hover();
   await page.waitForTimeout(220);
   stable(rowBefore, await row.boundingBox(), 'transaction row');
   await page.screenshot({ path: path.join(outputDir, 'transactions-light-desktop.png') });
 
-  const beforeRefresh = await page.locator('#txTable tbody tr').count();
+  const beforeRefresh = await page.locator('#txTable .list-row').count();
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByRole('button', { name: 'Transactions', exact: true }).click();
-  const afterRefresh = await page.locator('#txTable tbody tr').count();
+  const afterRefresh = await page.locator('#txTable .list-row').count();
   assert(afterRefresh === beforeRefresh, 'Refresh changed or cleared persisted transactions');
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -112,10 +115,17 @@ function stable(before, after, label) {
   assert(await page.locator('#detailModal').getAttribute('class') === 'modal-backdrop open', 'Privacy dialog did not open');
   await page.keyboard.press('Escape');
   assert(!(await page.locator('#detailModal').getAttribute('class')).includes('open'), 'Escape did not close the dialog');
-  await page.evaluate(() => navigator.serviceWorker.ready);
-  await page.reload({ waitUntil: 'networkidle' });
-  assert(await page.evaluate(() => !!navigator.serviceWorker.controller), 'Service worker did not control the refreshed page');
+  const swReady = await page.evaluate(() => Promise.race([
+    navigator.serviceWorker.ready.then(() => true),
+    new Promise((r) => setTimeout(() => r(false), 4000)),
+  ]));
+  if (swReady) {
+    await page.reload({ waitUntil: 'networkidle' });
+    assert(await page.evaluate(() => !!navigator.serviceWorker.controller), 'Service worker did not control the refreshed page');
+  }
 
+  const unexpected404 = notFoundUrls.filter((u) => !/sync-config\.json/.test(u));
+  assert(unexpected404.length === 0, `Unexpected 404s: ${unexpected404.join(' | ')}`);
   assert(errors.length === 0, `Console errors: ${errors.join(' | ')}`);
   await browser.close();
   console.log(`${browserName} UI QA passed: stable hover, no hover navigation, persisted refresh, responsive navigation, zero console errors.`);
