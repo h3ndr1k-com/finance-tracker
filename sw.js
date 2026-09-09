@@ -1,6 +1,6 @@
 importScripts('./reminders.js');
 
-const CACHE = 'ledger-v26';
+const CACHE = 'ledger-v27';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,8 @@ const ASSETS = [
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-512-maskable.png',
+  './icons/apple-touch-icon.png',
   './vendor/fonts/fraunces-normal-100-900.woff2',
   './vendor/fonts/fraunces-italic-100-900.woff2',
   './vendor/fonts/instrument-sans-normal-400-700.woff2',
@@ -37,12 +39,20 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+function isIconOrManifest(url) {
+  return url.pathname.endsWith('/manifest.webmanifest')
+    || url.pathname.includes('/icons/')
+    || /apple-touch-icon/.test(url.pathname);
+}
+
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   // Never touch cross-origin traffic: the Dropbox API must not go through a
   // cache-first handler, and letting it fall through here turns an offline
   // request into a confusing TypeError instead of a clean network error.
-  if (new URL(e.request.url).origin !== self.location.origin) return;
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return;
+
   if (e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request)
@@ -55,6 +65,34 @@ self.addEventListener('fetch', (e) => {
     );
     return;
   }
+
+  // Icons + manifest: network-first so home-screen / PWA icon updates land.
+  if (isIconOrManifest(url)) {
+    e.respondWith(
+      fetch(e.request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => {
+              cache.put(e.request, copy);
+              // Also refresh the unversioned asset path used by ASSETS / offline.
+              const clean = '.' + url.pathname;
+              if (clean.startsWith('./icons/') || clean.endsWith('manifest.webmanifest')) {
+                cache.put(clean, response.clone()).catch(() => {});
+              }
+            });
+          }
+          return response;
+        })
+        .catch(async () => {
+          return (await caches.match(e.request))
+            || (await caches.match('.' + url.pathname))
+            || Response.error();
+        })
+    );
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then((hit) => {
       const fresh = fetch(e.request).then((response) => {
