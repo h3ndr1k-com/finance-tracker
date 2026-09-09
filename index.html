@@ -4,11 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e0e0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="A private, local-first personal finance tracker for transactions, budgets, jars, and subscriptions.">
 <title>Ledger</title>
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest?v=27">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=27">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=27">
+<link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png?v=27">
 <style>
 @font-face {
   font-family: 'Fraunces'; font-style: italic; font-weight: 100 900; font-display: swap;
@@ -94,13 +98,18 @@
 * { box-sizing: border-box; margin: 0; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 button, .iconbtn, nav button, .linkbtn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+html {
+  height: 100%;
+}
 body {
   background: var(--bg);
   color: var(--ink);
   font: 15px/1.5 var(--body);
-  padding-bottom: env(safe-area-inset-bottom);
   min-height: 100dvh;
   transition: background-color .18s ease, color .18s ease;
+}
+#scroll-root {
+  display: contents;
 }
 ::selection { background: var(--accent); color: var(--on-accent); }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
@@ -494,14 +503,16 @@ progress { width: 100%; accent-color: var(--accent); }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 
-/* Mobile layout by default */
+/* Mobile layout by default.
+   Use a locked svh app shell so the bottom tab bar stays pinned when mobile
+   browser chrome shows/hides — fixed bottom bars "crawl" on iOS/Android otherwise. */
 nav.topnav { display: none; }
 nav.tabbar {
-  display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
-  background: color-mix(in srgb, var(--card) 92%, transparent);
+  display: flex; position: relative; flex-shrink: 0; z-index: 30;
+  background: color-mix(in srgb, var(--card) 96%, transparent);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--hairline);
-  padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
+  padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
   justify-content: space-around;
 }
 nav.tabbar button {
@@ -513,6 +524,57 @@ nav.tabbar button svg { width: 21px; height: 21px; stroke: currentColor; fill: n
 nav.tabbar button.active { color: var(--accent); }
 nav.tabbar button:active { transform: scale(.97); }
 
+@media (max-width: 759px) {
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    min-height: 0;
+    height: 100%;
+    padding-bottom: 0;
+  }
+  #app-shell {
+    height: 100%;
+    height: 100svh;
+    max-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    flex-shrink: 0;
+    position: relative;
+  }
+  #scroll-root {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+  main {
+    padding-bottom: 28px;
+  }
+  .site-footer {
+    margin-bottom: 12px;
+  }
+  .fab {
+    /* Sit just above the in-flow tab bar without chasing the visual viewport */
+    position: sticky;
+    float: right;
+    bottom: 16px;
+    right: 16px;
+    margin: 0 16px 16px auto;
+  }
+  .toast {
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 .view.active > * { animation: none; }
 .modal { max-height: calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
 .dropzone { flex-direction: column; align-items: stretch; gap: 10px; }
@@ -522,14 +584,27 @@ nav.tabbar button:active { transform: scale(.97); }
 
 /* Full-width desktop dashboard; mobile keeps the app-style bottom navigation. */
 @media (min-width: 760px) {
+  html, body {
+    height: auto;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
   body {
     min-height: 100dvh;
   }
   #app-shell {
     width: 100%;
+    height: auto;
+    max-height: none;
     min-height: 100dvh;
+    display: block;
+    overflow: visible;
     background: var(--bg);
     position: relative;
+  }
+  #scroll-root {
+    display: contents;
+    overflow: visible;
   }
   header { padding-inline: max(28px, calc((100vw - 1180px) / 2)); }
   nav.topnav { display: flex; }
@@ -544,7 +619,13 @@ nav.tabbar button:active { transform: scale(.97); }
     left: 50%;
     transform: translateX(-50%);
   }
-  .fab { right: max(28px, calc((100vw - 1180px) / 2)); bottom: 28px; }
+  .fab {
+    position: fixed;
+    right: max(28px, calc((100vw - 1180px) / 2));
+    bottom: 28px;
+    float: none;
+    margin: 0;
+  }
 }
 
 @media (min-width: 1000px) {
@@ -616,7 +697,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   main { padding-top: 18px; }
   .hero .big { font-size: clamp(36px, 12vw, 52px); }
   .card { padding: 19px; border-radius: 16px; }
-  .site-footer { flex-direction: column; align-items: flex-start; margin-bottom: 86px; }
+  .site-footer { flex-direction: column; align-items: flex-start; margin-bottom: 12px; }
   .modal-backdrop { padding: 12px 8px; }
   .modal { padding: 21px; border-radius: 20px; }
   /* Transactions table: hide secondary columns on mobile, keep date/description/amount */
@@ -647,15 +728,18 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   #view-overview.active > .gridrow { display: grid; grid-column: 1 / -1; margin-bottom: 0; }
   #view-overview.active > .gridrow:nth-of-type(3) { grid-column: 1 / -1; }
   #view-overview.active > .card { margin-bottom: 0; }
-  #view-overview.active > .fab { position: fixed; }
+  #view-overview.active > .fab { position: fixed; bottom: 28px; }
 }
 
 /* Split list/detail panel system (desktop >=1100px) */
 .split-view { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
 .split-view .split-list { background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
 .split-view .split-list .split-list-head { padding: 14px 18px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.split-view .split-list .split-section-label { padding: 10px 18px 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; background: color-mix(in srgb, var(--raised) 55%, transparent); border-bottom: 1px solid var(--hairline); }
 .split-view .split-detail { background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius); padding: 22px; position: sticky; top: calc(82px + env(safe-area-inset-top)); }
 .split-view .split-detail.empty { display: grid; place-items: center; min-height: 320px; color: var(--muted); text-align: center; }
+.split-view .split-detail .credit-plan { margin-top: 8px; }
+.split-view .split-detail .reclist { max-height: 280px; overflow-y: auto; }
 .list-row { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--hairline); cursor: pointer; transition: background .14s ease; }
 .list-row:last-child { border-bottom: none; }
 .list-row:hover { background: color-mix(in srgb, var(--raised) 60%, transparent); }
@@ -703,6 +787,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   <button type="button" class="iconbtn" id="settingsBtn" title="Settings" aria-label="Open settings">⚙</button>
 </header>
 
+<div id="scroll-root">
 <main id="main-content" tabindex="-1">
   <section class="view active" id="view-overview"></section>
   <section class="view" id="view-transactions">
@@ -741,14 +826,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
         <button class="primary" id="addSubBtn">＋ Add recurring expense</button>
       </div>
     </div>
-    <div class="card">
-      <div class="cardhead"><div class="label">My recurring expenses</div></div>
-      <div class="reclist" id="mySubsList"></div>
-    </div>
-    <div class="card">
-      <div class="cardhead"><div class="label">Auto-detected bills (from activity)</div></div>
-      <div class="reclist" id="detectedSubsList"></div>
-    </div>
+    <div id="subsSplitWrap"></div>
   </section>
   <section class="view" id="view-credit-cards">
     <div class="view-heading"><h2>Credit cards</h2><p>Model a payoff plan before you make it. Adjust a monthly payment or target timeline to see the interest cost.</p></div>
@@ -760,6 +838,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   <span><strong>Ledger</strong> · private by design, useful by default</span>
   <span class="footer-actions"><button type="button" class="footer-link" id="privacyBtn">Privacy</button><button type="button" class="footer-link" id="shortcutsBtn">Keyboard & access</button></span>
 </footer>
+</div>
 
 <nav class="tabbar" aria-label="Primary">
   <button data-view="overview" class="active"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round"><path d="M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>Overview</button>
@@ -1588,10 +1667,11 @@ async function deleteTransactions(ids) {
 /* ---------- subscriptions add / edit / delete ---------- */
 function openSubscriptionModal(existing) {
   const modal = $('#editModal'), body = $('#editBody');
-  const sub = existing || { name: '', amount: null, currency: S.settings.base, period: 'monthly', date: todayISO(), category: 'Subscriptions', business: '', account: '', jar: '' };
+  const isEdit = !!(existing && existing.id);
+  const sub = Object.assign({ name: '', amount: null, currency: S.settings.base, period: 'monthly', date: todayISO(), category: 'Subscriptions', business: '', account: '', jar: '' }, existing || {});
   
   body.innerHTML = `
-    <h2>${existing ? 'Edit recurring expense' : 'Add recurring expense'}</h2>
+    <h2>${isEdit ? 'Edit recurring expense' : 'Add recurring expense'}</h2>
     <div class="sub">Use this for rent, subscriptions, a planned card payment, or any bill that repeats.</div>
     <div class="formrow"><label>Name</label><input id="sName" value="${esc(sub.name)}" placeholder="e.g. Rent or Netflix"></div>
     <div class="formrow"><label>Amount</label><input type="number" step="0.01" min="0" id="sAmount" value="${sub.amount != null ? sub.amount : ''}" placeholder="0.00"><select id="sCur" style="flex:none">${CURRENCIES.map(c => `<option ${c === sub.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
@@ -1602,17 +1682,18 @@ function openSubscriptionModal(existing) {
     <div class="formrow"><label>Category</label>${categoryFieldHtml(sub.category, 'sCat', 'sCatCustom')}</div>
     <div class="formrow"><label>Jar</label><select id="sJar"><option value="">Auto from category</option>${S.jars.map(j => `<option value="${j.id}" ${sub.jar === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}</select></div>
     <div class="formrow" style="justify-content:space-between; margin-top:16px">
-      <span>${existing ? `<button class="ghost danger" id="sDelete">Delete</button>` : ''}</span>
+      <span>${isEdit ? `<button class="ghost danger" id="sDelete">Delete</button>` : ''}</span>
       <span><button class="ghost" id="sCancel">Cancel</button> <button class="primary" id="sSave">Save</button></span>
     </div>`;
   modal.classList.add('open');
   wireCategoryCustom('#sCat', '#sCatCustom');
   $('#sCancel').onclick = () => modal.classList.remove('open');
-  if (existing) {
+  if (isEdit) {
     $('#sDelete').onclick = async () => {
       if (!confirm(`Delete subscription "${sub.name}"?`)) return;
       S.subscriptions = S.subscriptions.filter(x => x.id !== existing.id);
       await DB.kvSet('subscriptions', S.subscriptions);
+      if (selectedRecurring?.kind === 'manual' && selectedRecurring.id === existing.id) selectedRecurring = null;
       modal.classList.remove('open');
       toast('Subscription deleted');
       renderAll();
@@ -1633,86 +1714,166 @@ function openSubscriptionModal(existing) {
     const missing = [!name && 'name', isNaN(amt) && 'amount', !date && 'next due date', !account && 'account'].filter(Boolean);
     if (missing.length) { toast('Missing: ' + missing.join(', ')); return; }
     
-    const ns = { id: existing ? existing.id : uid(), name, amount: amt, currency, period, date, category, business, account, jar, source: existing ? existing.source : 'manual' };
-    if (existing) {
+    const ns = { id: isEdit ? existing.id : uid(), name, amount: amt, currency, period, date, category, business, account, jar, source: isEdit ? existing.source : 'manual' };
+    if (isEdit) {
       const idx = S.subscriptions.findIndex(x => x.id === existing.id);
       if (idx >= 0) S.subscriptions[idx] = ns;
     } else {
       S.subscriptions.push(ns);
+      selectedRecurring = { kind: 'manual', id: ns.id };
     }
     await DB.kvSet('subscriptions', S.subscriptions);
     if (!(account in S.accounts)) { S.accounts[account] = { currency }; await DB.kvSet('accounts', S.accounts); }
     modal.classList.remove('open');
-    toast(existing ? 'Saved' : 'Recurring expense added');
+    toast(isEdit ? 'Saved' : 'Recurring expense added');
     renderAll();
     await checkRecurringReminders();
   };
 }
 
+let selectedRecurring = null; // { kind: 'manual', id } | { kind: 'detected', id: merchantKey }
+function isRecurringSelected(kind, idOrKey) {
+  return selectedRecurring && selectedRecurring.kind === kind && selectedRecurring.id === idOrKey;
+}
 function renderSubscriptions() {
-  const mySubsEl = $('#mySubsList');
-  const detSubsEl = $('#detectedSubsList');
-  if (!mySubsEl || !detSubsEl) return;
-  
-  // Calculate manual totals
+  const wrap = $('#subsSplitWrap');
+  if (!wrap) return;
+
   let manualMonthly = 0;
   S.subscriptions.forEach(s => { manualMonthly += subscriptionMonthlyAmount(s); });
-  
-  // Auto-detected totals exclude merchants already tracked manually
   const recurring = detectedRecurringOnly();
   const detMonthly = recurring.reduce((s, r) => s + r.monthly, 0);
-  
   const totalMonthly = manualMonthly + detMonthly;
   $('#subTotalAmt').textContent = baseFmt(totalMonthly) + '/mo';
   $('#subTotalBreakdown').textContent = `${baseFmt(manualMonthly)} manual · ${baseFmt(detMonthly)} auto-detected (annual total: ${baseFmt(totalMonthly * 12)})`;
-  
-  // Render manual list
-  if (!S.subscriptions.length) {
-    mySubsEl.innerHTML = `<div class="sub" style="padding: 10px 0;">No recurring expenses added yet. Add rent, a planned credit-card payment, or a subscription.</div>`;
-  } else {
-    mySubsEl.innerHTML = S.subscriptions.map((s, i) => {
-      let freqSuffix = s.period === 'monthly' ? '/mo' : (s.period === 'yearly' ? '/yr' : '/wk');
-      const baseAmt = toBase(s.amount, s.currency);
-      let monthlyEquivalent = baseAmt;
-      if (s.period === 'yearly') monthlyEquivalent = baseAmt / 12;
-      else if (s.period === 'weekly') monthlyEquivalent = baseAmt * 4.33;
-      
-      return `
-        <div class="recrow manual-sub-row" data-id="${s.id}">
-          <span class="dot" style="background:${catColor(s.category)}"></span>
-          <span class="name">${esc(s.name)}<span class="sub">${esc(s.account)} · due ${dayLabel(s.date)}</span></span>
-          ${bizTagHtml(s.business)}
-          <span class="num" style="text-align:right;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-            ${fmtMoney(s.amount, s.currency)}${freqSuffix}
-            ${s.currency !== S.settings.base ? `<span class="sub num">${baseFmt(monthlyEquivalent)}/mo equivalent</span>` : ''}
-          </span>
-        </div>`;
-    }).join('');
-    
-    $$('.manual-sub-row').forEach(row => {
-      row.onclick = () => {
-        const sub = S.subscriptions.find(x => x.id === row.dataset.id);
-        if (sub) openSubscriptionModal(sub);
-      };
-    });
+
+  // Drop stale selection if the item disappeared
+  if (selectedRecurring?.kind === 'manual' && !S.subscriptions.some(s => s.id === selectedRecurring.id)) selectedRecurring = null;
+  if (selectedRecurring?.kind === 'detected' && !recurring.some(r => merchantKey(r.name) === selectedRecurring.id)) selectedRecurring = null;
+
+  const manualRows = S.subscriptions.length ? S.subscriptions.map(s => {
+    const freqSuffix = s.period === 'monthly' ? '/mo' : (s.period === 'yearly' ? '/yr' : '/wk');
+    const baseAmt = toBase(s.amount, s.currency);
+    let monthlyEquivalent = baseAmt;
+    if (s.period === 'yearly') monthlyEquivalent = baseAmt / 12;
+    else if (s.period === 'weekly') monthlyEquivalent = baseAmt * 4.33;
+    return `<div class="list-row ${isRecurringSelected('manual', s.id) ? 'selected' : ''}" data-kind="manual" data-id="${s.id}">
+      <span class="list-row-avatar" style="background:${catColor(s.category)}">${esc((s.name || '?').slice(0, 1).toUpperCase())}</span>
+      <span class="list-row-main">
+        <span class="list-row-title">${esc(s.name)}</span>
+        <span class="list-row-sub">${esc(s.account)} · due ${dayLabel(s.date)}${s.business ? ' · ' + esc(s.business) : ''}</span>
+      </span>
+      <span class="list-row-amount">${fmtMoney(s.amount, s.currency)}${freqSuffix}${s.currency !== S.settings.base ? `<br><span class="list-row-sub num">${baseFmt(monthlyEquivalent)}/mo</span>` : ''}</span>
+    </div>`;
+  }).join('') : '<div class="sub" style="padding:14px 18px">No recurring expenses added yet.</div>';
+
+  const detectedRows = recurring.length ? recurring.map(r => {
+    const key = merchantKey(r.name);
+    return `<div class="list-row ${isRecurringSelected('detected', key) ? 'selected' : ''}" data-kind="detected" data-id="${encodeURIComponent(key)}">
+      <span class="list-row-avatar" style="background:${catColor(r.cat)}">${esc((r.name || '?').slice(0, 1).toUpperCase())}</span>
+      <span class="list-row-main">
+        <span class="list-row-title">${esc(r.name)}${r.hike ? ' <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ hike</span>' : ''}</span>
+        <span class="list-row-sub">${r.count}× monthly${r.business ? ' · ' + esc(r.business) : ''}</span>
+      </span>
+      <span class="list-row-amount">${baseFmt(r.monthly)}<br><span class="list-row-sub num">${baseFmt(r.annual)}/yr</span></span>
+    </div>`;
+  }).join('') : '<div class="sub" style="padding:14px 18px">No recurring bills detected yet. Needs 2+ months of a merchant.</div>';
+
+  const totalCount = S.subscriptions.length + recurring.length;
+  const detail = recurringDetailHtml(selectedRecurring, recurring);
+  wrap.innerHTML = `
+    <div class="split-view">
+      <div class="split-list">
+        <div class="split-list-head">
+          <div class="label" style="margin:0">${totalCount} recurring item${totalCount === 1 ? '' : 's'}</div>
+        </div>
+        <div class="split-section-label">My recurring expenses</div>
+        ${manualRows}
+        <div class="split-section-label">Auto-detected bills</div>
+        ${detectedRows}
+      </div>
+      <div class="split-detail${detail.selected ? '' : ' empty'}" id="subsDetail">${detail.html}</div>
+    </div>`;
+
+  $$('#subsSplitWrap .list-row').forEach(row => {
+    row.onclick = () => {
+      const id = row.dataset.kind === 'detected' ? decodeURIComponent(row.dataset.id) : row.dataset.id;
+      selectedRecurring = { kind: row.dataset.kind, id };
+      renderSubscriptions();
+    };
+  });
+  wireRecurringDetail(selectedRecurring, recurring);
+}
+function recurringDetailHtml(sel, recurring) {
+  if (!sel) return { selected: false, html: '<div><div class="serif" style="font-size:18px;margin-bottom:6px">Select a recurring item</div><div class="sub">Pick a row to see details, edit it, or jump to matching transactions.</div></div>' };
+  if (sel.kind === 'manual') {
+    const s = S.subscriptions.find(x => x.id === sel.id);
+    if (!s) return { selected: false, html: '<div class="sub">Item not found.</div>' };
+    const freq = s.period === 'monthly' ? 'Monthly' : (s.period === 'yearly' ? 'Yearly' : 'Weekly');
+    return {
+      selected: true,
+      html: `
+        <div class="cardhead"><div class="label" style="margin:0">Recurring expense</div><span class="pill">manual</span></div>
+        <div class="serif" style="font-size:20px;font-weight:700;margin-bottom:4px">${esc(s.name)}</div>
+        <div class="sub" style="margin-bottom:16px">${esc(s.category)} · ${esc(s.account)} · due ${dayLabel(s.date)}${s.business ? ' · ' + esc(s.business) : ''}</div>
+        <div class="num" style="font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px">${fmtMoney(s.amount, s.currency)}</div>
+        <div class="sub" style="margin-bottom:18px">${freq} · ${baseFmt(subscriptionMonthlyAmount(s))}/mo equivalent</div>
+        <div class="formrow" style="justify-content:flex-end;margin-top:8px">
+          <button class="ghost" id="recEditManual">Edit</button>
+        </div>`
+    };
   }
-  
-  // Render auto-detected list
-  if (!recurring.length) {
-    detSubsEl.innerHTML = `<div class="sub" style="padding: 10px 0;">No recurring bills detected in transactions. Needs 2+ months of a merchant to auto-spot a pattern.</div>`;
-  } else {
-    detSubsEl.innerHTML = recurring.map((r, i) => `
-      <div class="recrow det-sub-row" data-i="${i}">
-        <span class="dot" style="background:${catColor(r.cat)}"></span>
-        <span class="name">${esc(r.name)}${r.hike ? ` <span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span>` : ''}<span class="sub">${r.count}× monthly</span></span>
-        ${bizTagHtml(r.business)}
-        <span class="num" style="text-align:right;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:2px">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.annual)}/yr</span></span>
-      </div>`).join('');
-      
-    $$('.det-sub-row').forEach(row => {
-      row.onclick = () => openRecurringDetail(recurring[+row.dataset.i]);
-    });
+  const r = recurring.find(x => merchantKey(x.name) === sel.id);
+  if (!r) return { selected: false, html: '<div class="sub">Item not found.</div>' };
+  const total = r.items.reduce((sum, t) => sum + Math.abs(toBase(t.amount, t.currency)), 0);
+  const rows = r.items.slice().reverse();
+  return {
+    selected: true,
+    html: `
+      <div class="cardhead"><div class="label" style="margin:0">Detected bill</div><span class="pill grey">auto</span></div>
+      <div class="serif" style="font-size:20px;font-weight:700;margin-bottom:4px">${esc(r.name)}</div>
+      <div class="sub" style="margin-bottom:16px">${esc(r.cat)} · seen ${r.count}×, roughly monthly${r.business ? ' · ' + esc(r.business) : ''}</div>
+      <div class="grid2" style="margin-bottom:16px">
+        <div><div class="label">Per month</div><div class="mid num">${baseFmt(r.monthly)}</div></div>
+        <div><div class="label">Per year</div><div class="mid num">${baseFmt(r.annual)}</div></div>
+      </div>
+      ${r.hike ? `<div style="margin-bottom:14px"><span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ price rose ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span></div>` : ''}
+      <div class="cardhead"><div class="label">Every charge</div><span class="sub num">${baseFmt(total)} paid in total</span></div>
+      <div class="reclist">${rows.map((t, i) => {
+        const prev = rows[i + 1];
+        const curAmt = Math.abs(toBase(t.amount, t.currency));
+        const prevAmt = prev ? Math.abs(toBase(prev.amount, prev.currency)) : null;
+        const changed = prevAmt !== null && Math.abs(curAmt - prevAmt) / (prevAmt || 1) > 0.005;
+        return `<div class="recrow" style="cursor:default">
+          <span class="name">${esc(dayLabel(t.date))}<span class="sub">${esc(t.account)}</span></span>
+          ${bizTagHtml(t.business)}
+          ${changed ? `<span class="pill" style="background:${curAmt > prevAmt ? 'var(--coral-soft)' : 'var(--accent-soft)'};color:${curAmt > prevAmt ? 'var(--coral)' : 'var(--accent)'}">${curAmt > prevAmt ? '▲' : '▼'} ${baseFmt(Math.abs(curAmt - prevAmt))}</span>` : ''}
+          <span class="num" style="white-space:nowrap">${fmtMoney(t.amount, t.currency)}</span></div>`;
+      }).join('')}</div>
+      <div class="formrow" style="justify-content:flex-end;margin-top:16px">
+        <button class="ghost" id="recSeeAll">See in Transactions</button>
+        <button class="primary" id="recTrack">Track as recurring</button>
+      </div>`
+  };
+}
+function wireRecurringDetail(sel, recurring) {
+  if (!sel) return;
+  if (sel.kind === 'manual') {
+    const s = S.subscriptions.find(x => x.id === sel.id);
+    const btn = $('#recEditManual');
+    if (btn && s) btn.onclick = () => openSubscriptionModal(s);
+    return;
   }
+  const r = recurring.find(x => merchantKey(x.name) === sel.id);
+  if (!r) return;
+  const see = $('#recSeeAll');
+  if (see) see.onclick = () => gotoTransactions({ search: r.name });
+  const track = $('#recTrack');
+  if (track) track.onclick = () => openSubscriptionModal({
+    name: r.name, amount: r.monthly, currency: S.settings.base, period: 'monthly',
+    category: r.cat, account: r.items[r.items.length - 1]?.account || '', business: r.business || '',
+    date: r.items[r.items.length - 1]?.date || todayISO()
+  });
 }
 
 /* ---------- credit-card payoff planner ---------- */
@@ -1757,41 +1918,18 @@ function openCreditCardModal(existing) {
     <div class="formrow" style="justify-content:space-between;margin-top:16px"><span>${existing ? '<button class="ghost danger" id="ccDelete">Delete</button>' : ''}</span><span><button class="ghost" id="ccCancel">Cancel</button> <button class="primary" id="ccSave">Save card</button></span></div>`;
   modal.classList.add('open');
   $('#ccCancel').onclick = () => modal.classList.remove('open');
-  if (existing) $('#ccDelete').onclick = async () => { if (!confirm(`Delete ${card.name}?`)) return; S.creditCards = S.creditCards.filter(x => x.id !== existing.id); await DB.kvSet('creditCards', S.creditCards); modal.classList.remove('open'); renderAll(); toast('Credit card deleted'); };
+  if (existing) $('#ccDelete').onclick = async () => { if (!confirm(`Delete ${card.name}?`)) return; S.creditCards = S.creditCards.filter(x => x.id !== existing.id); if (selectedCreditCardId === existing.id) selectedCreditCardId = null; await DB.kvSet('creditCards', S.creditCards); modal.classList.remove('open'); renderAll(); toast('Credit card deleted'); };
   $('#ccSave').onclick = async () => {
     const name = $('#ccName').value.trim(), balance = parseFloat($('#ccBalance').value), apr = parseFloat($('#ccApr').value), payment = parseFloat($('#ccPayment').value), currency = $('#ccCurrency').value, account = $('#ccAccount').value.trim();
     if (!name || !Number.isFinite(balance) || balance < 0 || !Number.isFinite(apr) || apr < 0 || !Number.isFinite(payment) || payment <= 0) { toast('Add a name, balance, APR, and monthly payment'); return; }
     const next = { id: existing ? existing.id : uid(), name, balance, apr, payment, currency, account };
     const index = S.creditCards.findIndex(x => x.id === next.id);
     if (index >= 0) S.creditCards[index] = next; else S.creditCards.push(next);
+    selectedCreditCardId = next.id;
     await DB.kvSet('creditCards', S.creditCards);
     if (account && !(account in S.accounts)) { S.accounts[account] = { currency }; await DB.kvSet('accounts', S.accounts); }
     modal.classList.remove('open'); renderAll(); toast(existing ? 'Credit card saved' : 'Credit card added');
   };
-}
-async function updateCreditCardPlan(id, patch) {
-  const card = S.creditCards.find(x => x.id === id); if (!card) return;
-  Object.assign(card, patch); await DB.kvSet('creditCards', S.creditCards); renderCreditCards();
-}
-function renderCreditCards() {
-  const el = $('#creditCardsList'); if (!el) return;
-  if (!S.creditCards.length) {
-    el.innerHTML = `<div class="card"><div class="label">Payoff planner</div><div class="mid">Know the cost before you carry a balance.</div><p class="sub" style="margin:10px 0 18px;max-width:60ch">Add a card, enter what you owe and its APR, then compare your current monthly payment against a payoff timeline.</p><button class="primary" id="addCreditCardBtn">＋ Add credit card</button></div>`;
-    $('#addCreditCardBtn').onclick = () => openCreditCardModal(null); return;
-  }
-  el.innerHTML = `<div class="cardhead" style="margin-bottom:16px"><div class="sub">Estimates assume no new purchases and a steady interest rate.</div><button class="primary sm" id="addCreditCardBtn">＋ Add credit card</button></div><div class="credit-grid">${S.creditCards.map(card => {
-    const estimate = payoffEstimate(card.balance, card.apr, card.payment);
-    const targetMonths = estimate.never ? 12 : Math.max(1, estimate.months);
-    const required = monthlyPaymentForTerm(card.balance, card.apr, targetMonths);
-    return `<section class="card" data-card="${card.id}"><div class="credit-card-head"><div><div class="label">${esc(card.name)}</div><div class="credit-balance num">${fmtMoney(card.balance, card.currency)}</div><div class="sub">${card.apr.toFixed(2)}% APR${card.account ? ` · ${esc(card.account)}` : ''}</div></div><button class="linkbtn ccEdit" data-id="${card.id}">Edit</button></div>
-      <div class="credit-plan"><div class="credit-plan-grid"><div><label for="ccPayment-${card.id}">Pay each month</label><input id="ccPayment-${card.id}" class="ccPayment num" data-id="${card.id}" type="number" min="0.01" step="0.01" value="${card.payment}"></div><div><label for="ccMonths-${card.id}">Or clear it in</label><input id="ccMonths-${card.id}" class="ccMonths num" data-id="${card.id}" type="number" min="1" max="600" step="1" value="${targetMonths}"><span class="sub">months</span></div></div>
-        ${estimate.never ? `<p class="credit-note warn">This payment is not enough to cover roughly ${fmtMoney(estimate.monthlyInterest, card.currency)} of monthly interest. Increase it to start reducing the balance.</p>` : `<div class="credit-result"><div><span class="sub">Debt-free in</span><strong>${payoffLabel(estimate.months)}</strong><span class="sub">around ${payoffDate(estimate.months)}</span></div><div><span class="sub">Interest cost</span><strong class="num">${fmtMoney(estimate.interest, card.currency)}</strong><span class="sub">${fmtMoney(estimate.total, card.currency)} total repaid</span></div></div><p class="credit-note">To finish in ${targetMonths} months, pay ${fmtMoney(required, card.currency)}/month.</p>`}
-      </div></section>`;
-  }).join('')}</div>`;
-  $('#addCreditCardBtn').onclick = () => openCreditCardModal(null);
-  $$('.ccEdit').forEach(button => button.onclick = () => openCreditCardModal(S.creditCards.find(card => card.id === button.dataset.id)));
-  $$('.ccPayment').forEach(input => input.onchange = async () => { const payment = parseFloat(input.value); if (payment > 0) await updateCreditCardPlan(input.dataset.id, { payment }); else toast('Monthly payment must be above zero'); });
-  $$('.ccMonths').forEach(input => input.onchange = async () => { const card = S.creditCards.find(item => item.id === input.dataset.id), months = parseInt(input.value, 10); if (!card || !Number.isFinite(months) || months < 1) { toast('Enter at least one month'); return; } await updateCreditCardPlan(card.id, { payment: monthlyPaymentForTerm(card.balance, card.apr, months) }); });
 }
 
 /* ---------- aggregation ---------- */
@@ -2062,35 +2200,72 @@ function gotoTransactions(f) {
 
 function openRecurringDetail(r) {
   if (!r) return;
-  const total = r.items.reduce((s, t) => s + Math.abs(toBase(t.amount, t.currency)), 0);
-  const rows = r.items.slice().reverse();
-  $('#detailBody').innerHTML = `
-    <h2>${esc(r.name)}</h2>
-    <div class="sub">${esc(r.cat)} · seen ${r.count}×, roughly monthly</div>
-    <div class="grid2" style="margin-bottom:16px">
-      <div class="card" style="margin:0"><div class="label">Per month</div><div class="mid num">${baseFmt(r.monthly)}</div></div>
-      <div class="card" style="margin:0"><div class="label">Per year</div><div class="mid num">${baseFmt(r.annual)}</div></div>
-    </div>
-    ${r.hike ? `<div style="margin-bottom:14px"><span class="pill" style="background:var(--coral-soft);color:var(--coral)">▲ price rose ${baseFmt(r.hike.from)} to ${baseFmt(r.hike.to)}</span></div>` : ''}
-    <div class="cardhead"><div class="label">Every charge</div><span class="sub num">${baseFmt(total)} paid in total</span></div>
-    <div class="reclist">${rows.map((t, i) => {
-      const prev = rows[i + 1];
-      const curAmt = Math.abs(toBase(t.amount, t.currency));
-      const prevAmt = prev ? Math.abs(toBase(prev.amount, prev.currency)) : null;
-      const changed = prevAmt !== null && Math.abs(curAmt - prevAmt) / (prevAmt || 1) > 0.005;
-      return `<div class="recrow" style="cursor:default">
-        <span class="name">${esc(dayLabel(t.date))}<span class="sub">${esc(t.account)}</span></span>
-        ${bizTagHtml(t.business)}
-        ${changed ? `<span class="pill" style="background:${curAmt > prevAmt ? 'var(--coral-soft)' : 'var(--accent-soft)'};color:${curAmt > prevAmt ? 'var(--coral)' : 'var(--accent)'}">${curAmt > prevAmt ? '▲' : '▼'} ${baseFmt(Math.abs(curAmt - prevAmt))}</span>` : ''}
-        <span class="num" style="white-space:nowrap">${fmtMoney(t.amount, t.currency)}</span></div>`;
-    }).join('')}</div>
-    <div class="formrow" style="justify-content:flex-end;margin-top:16px">
-      <button class="ghost" id="recSeeAll">See in Transactions</button>
-      <button class="primary" id="recDone">Done</button>
+  selectedRecurring = { kind: 'detected', id: merchantKey(r.name) };
+  switchView('subscriptions');
+  window.scrollTo({ top: 0 });
+  renderSubscriptions();
+}
+
+let selectedCreditCardId = null;
+function creditCardDetailHtml(card) {
+  if (!card) return '<div><div class="serif" style="font-size:18px;margin-bottom:6px">Select a credit card</div><div class="sub">Pick a card to model a payoff plan, or add one to get started.</div></div>';
+  const estimate = payoffEstimate(card.balance, card.apr, card.payment);
+  const targetMonths = estimate.never ? 12 : Math.max(1, estimate.months);
+  const required = monthlyPaymentForTerm(card.balance, card.apr, targetMonths);
+  return `
+    <div class="cardhead"><div class="label" style="margin:0">Payoff planner</div><button class="linkbtn ccEdit" data-id="${card.id}">Edit</button></div>
+    <div class="serif" style="font-size:20px;font-weight:700;margin-bottom:4px">${esc(card.name)}</div>
+    <div class="credit-balance num">${fmtMoney(card.balance, card.currency)}</div>
+    <div class="sub" style="margin-bottom:16px">${card.apr.toFixed(2)}% APR${card.account ? ` · ${esc(card.account)}` : ''}</div>
+    <div class="credit-plan"><div class="credit-plan-grid"><div><label for="ccPayment-${card.id}">Pay each month</label><input id="ccPayment-${card.id}" class="ccPayment num" data-id="${card.id}" type="number" min="0.01" step="0.01" value="${card.payment}"></div><div><label for="ccMonths-${card.id}">Or clear it in</label><input id="ccMonths-${card.id}" class="ccMonths num" data-id="${card.id}" type="number" min="1" max="600" step="1" value="${targetMonths}"><span class="sub">months</span></div></div>
+      ${estimate.never ? `<p class="credit-note warn">This payment is not enough to cover roughly ${fmtMoney(estimate.monthlyInterest, card.currency)} of monthly interest. Increase it to start reducing the balance.</p>` : `<div class="credit-result"><div><span class="sub">Debt-free in</span><strong>${payoffLabel(estimate.months)}</strong><span class="sub">around ${payoffDate(estimate.months)}</span></div><div><span class="sub">Interest cost</span><strong class="num">${fmtMoney(estimate.interest, card.currency)}</strong><span class="sub">${fmtMoney(estimate.total, card.currency)} total repaid</span></div></div><p class="credit-note">To finish in ${targetMonths} months, pay ${fmtMoney(required, card.currency)}/month.</p>`}
     </div>`;
-  $('#detailModal').classList.add('open');
-  $('#recDone').onclick = () => $('#detailModal').classList.remove('open');
-  $('#recSeeAll').onclick = () => { $('#detailModal').classList.remove('open'); gotoTransactions({ search: r.name }); };
+}
+async function updateCreditCardPlan(id, patch) {
+  const card = S.creditCards.find(x => x.id === id); if (!card) return;
+  Object.assign(card, patch); await DB.kvSet('creditCards', S.creditCards); renderCreditCards();
+}
+function renderCreditCards() {
+  const el = $('#creditCardsList'); if (!el) return;
+  if (!S.creditCards.length) {
+    selectedCreditCardId = null;
+    el.innerHTML = `<div class="card"><div class="label">Payoff planner</div><div class="mid">Know the cost before you carry a balance.</div><p class="sub" style="margin:10px 0 18px;max-width:60ch">Add a card, enter what you owe and its APR, then compare your current monthly payment against a payoff timeline.</p><button class="primary" id="addCreditCardBtn">＋ Add credit card</button></div>`;
+    $('#addCreditCardBtn').onclick = () => openCreditCardModal(null); return;
+  }
+  if (!selectedCreditCardId || !S.creditCards.some(c => c.id === selectedCreditCardId)) {
+    selectedCreditCardId = S.creditCards[0].id;
+  }
+  const sel = S.creditCards.find(c => c.id === selectedCreditCardId) || null;
+  const rows = S.creditCards.map(card => {
+    const estimate = payoffEstimate(card.balance, card.apr, card.payment);
+    const sub = estimate.never
+      ? 'Payment too low to reduce balance'
+      : `Debt-free in ${payoffLabel(estimate.months)}`;
+    return `<div class="list-row ${selectedCreditCardId === card.id ? 'selected' : ''}" data-id="${card.id}">
+      <span class="list-row-avatar" style="background:${acctColor(card.account || card.name)}">${esc((card.name || '?').slice(0, 1).toUpperCase())}</span>
+      <span class="list-row-main">
+        <span class="list-row-title">${esc(card.name)}</span>
+        <span class="list-row-sub">${card.apr.toFixed(2)}% APR · ${esc(sub)}</span>
+      </span>
+      <span class="list-row-amount">${fmtMoney(card.balance, card.currency)}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="split-view">
+      <div class="split-list">
+        <div class="split-list-head">
+          <div class="label" style="margin:0">${S.creditCards.length} card${S.creditCards.length === 1 ? '' : 's'}</div>
+          <button class="primary sm" id="addCreditCardBtn">＋ Add</button>
+        </div>
+        ${rows}
+      </div>
+      <div class="split-detail" id="creditDetail">${creditCardDetailHtml(sel)}</div>
+    </div>`;
+  $('#addCreditCardBtn').onclick = () => openCreditCardModal(null);
+  $$('#creditCardsList .list-row').forEach(row => row.onclick = () => { selectedCreditCardId = row.dataset.id; renderCreditCards(); });
+  $$('#creditCardsList .ccEdit').forEach(button => button.onclick = (e) => { e.stopPropagation(); openCreditCardModal(S.creditCards.find(card => card.id === button.dataset.id)); });
+  $$('#creditCardsList .ccPayment').forEach(input => input.onchange = async () => { const payment = parseFloat(input.value); if (payment > 0) await updateCreditCardPlan(input.dataset.id, { payment }); else toast('Monthly payment must be above zero'); });
+  $$('#creditCardsList .ccMonths').forEach(input => input.onchange = async () => { const card = S.creditCards.find(item => item.id === input.dataset.id), months = parseInt(input.value, 10); if (!card || !Number.isFinite(months) || months < 1) { toast('Enter at least one month'); return; } await updateCreditCardPlan(card.id, { payment: monthlyPaymentForTerm(card.balance, card.apr, months) }); });
 }
 
 /* ---------- transactions ---------- */
@@ -2738,7 +2913,22 @@ if (navigator.serviceWorker) {
   });
 }
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW registration failed', e));
+if ('serviceWorker' in navigator) {
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    // Pick up new HTML/icons after SW activation (helps home-screen icon refresh).
+    location.reload();
+  });
+  navigator.serviceWorker.register('./sw.js').then((reg) => {
+    reg.update().catch(() => {});
+    // Check again when returning to the app so icon/manifest updates aren't stuck.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) reg.update().catch(() => {});
+    });
+  }).catch(e => console.warn('SW registration failed', e));
+}
 if (navigator.storage?.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).then(p => console.log('storage persisted:', p));
 const tesScript = document.createElement('script'); tesScript.src = './vendor/tesseract.min.js'; document.head.appendChild(tesScript);
 </script>
