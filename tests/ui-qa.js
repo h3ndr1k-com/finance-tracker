@@ -52,9 +52,13 @@ function stable(before, after, label) {
     ];
     for (let i = 7; i <= 30; i++) rows.push({ id: 'qa-tx-' + i, date: '2026-0' + (1 + (i % 7)) + '-1' + (i % 9), desc: 'Merchant ' + i, amount: -(i * 7.5), currency: 'CAD', account: i % 2 ? 'Amex' : 'Chequing', source: 'qa', category: 'Groceries' });
     S.accounts = { Chequing: { currency: 'CAD' }, Amex: { currency: 'CAD' } };
+    S.subscriptions = [{ id: 'qa-sub-1', name: 'Rent', amount: 1800, currency: 'CAD', period: 'monthly', date: '2026-08-01', category: 'Housing', business: '', account: 'Chequing', jar: '', source: 'manual' }];
+    S.creditCards = [{ id: 'qa-cc-1', name: 'Amex Gold', balance: 4200, apr: 19.99, payment: 250, currency: 'CAD', account: 'Amex' }];
     await DB.putTx(rows);
     S.tx = rows; S.txIds = new Set(rows.map(t => t.id));
     await DB.kvSet('accounts', S.accounts);
+    await DB.kvSet('subscriptions', S.subscriptions);
+    await DB.kvSet('creditCards', S.creditCards);
     renderAll();
   });
   await page.waitForTimeout(900);
@@ -86,6 +90,21 @@ function stable(before, after, label) {
   await page.waitForTimeout(220);
   stable(rowBefore, await row.boundingBox(), 'transaction row');
   await page.screenshot({ path: path.join(outputDir, 'transactions-light-desktop.png') });
+
+  await page.getByRole('button', { name: 'Recurring', exact: true }).click();
+  await page.waitForTimeout(400);
+  assert(await page.locator('#subsSplitWrap .split-view').isVisible(), 'Recurring split view did not render');
+  assert(await page.locator('#subsSplitWrap .list-row').count() >= 1, 'Recurring list rows did not render');
+  await page.locator('#subsSplitWrap .list-row').first().click();
+  await page.waitForTimeout(200);
+  assert(await page.locator('#subsDetail').isVisible(), 'Recurring detail panel did not open');
+  assert(await page.locator('#subsDetail .serif, #subsDetail #recEditManual').count() >= 1, 'Recurring detail content missing');
+
+  await page.getByRole('button', { name: 'Credit cards', exact: true }).click();
+  await page.waitForTimeout(400);
+  assert(await page.locator('#creditCardsList .split-view').isVisible(), 'Credit cards split view did not render');
+  assert(await page.locator('#creditCardsList .list-row').count() >= 1, 'Credit card list rows did not render');
+  assert(await page.locator('#creditDetail .credit-plan').isVisible(), 'Credit card detail planner did not render');
 
   const beforeRefresh = await page.locator('#txTable .list-row').count();
   await page.reload({ waitUntil: 'networkidle' });
