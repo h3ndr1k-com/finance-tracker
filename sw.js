@@ -1,14 +1,15 @@
 importScripts('./reminders.js');
 
-const CACHE = 'ledger-v25';
+const CACHE = 'ledger-v26';
 const ASSETS = [
   './',
   './index.html',
   './sync.js',
   './reminders.js',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
+  './manifest.webmanifest?v=3',
+  './icons/icon-180.png?v=3',
+  './icons/icon-192.png?v=3',
+  './icons/icon-512.png?v=3',
   './vendor/fonts/fraunces-normal-100-900.woff2',
   './vendor/fonts/fraunces-italic-100-900.woff2',
   './vendor/fonts/instrument-sans-normal-400-700.woff2',
