@@ -1,2 +1,3 @@
 .vercel
 sync-config.json
+node_modules/

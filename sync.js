@@ -15,7 +15,7 @@ let syncBootstrap = undefined;
 let passphrase = null;
 let syncTimer = null;
 let inflight = null, pending = false;
-let syncStatus = { state: 'off', detail: '' };
+let syncStatus = { state: 'off', detail: '', issue: null };
 let deferredRender = false;
 let syncFocusPassphrase = false;
 
@@ -44,9 +44,36 @@ async function getSyncCfg() {
   return syncCfg;
 }
 async function saveSyncCfg() { await DB.kvSet(SYNC_CFG_KEY, syncCfg, false); }
-function setStatus(state, detail = '') { syncStatus = { state, detail }; document.dispatchEvent(new CustomEvent('syncstatus')); }
+function setStatus(state, detail = '', issue = null) {
+  const inferred = issue || (typeof LedgerSyncIssues !== 'undefined'
+    ? LedgerSyncIssues.inferSyncIssue(state, detail)
+    : null);
+  syncStatus = { state, detail, issue: inferred };
+  document.dispatchEvent(new CustomEvent('syncstatus'));
+}
 function getStatus() { return syncStatus; }
 function hasPassphrase() { return !!passphrase; }
+
+async function getSyncDiagnostics() {
+  const cfg = await getSyncCfg();
+  const st = getStatus();
+  const m = await getMeta();
+  const appKeyConfigured = !!(cfg.appKey && String(cfg.appKey).trim());
+  const dropboxConnected = !!(cfg.enabled && cfg.refreshToken);
+  const sw = typeof getServiceWorkerDiagnostics === 'function'
+    ? await getServiceWorkerDiagnostics()
+    : null;
+  return {
+    appKeyConfigured,
+    dropboxConnected,
+    passphraseReady: hasPassphrase(),
+    lastSync: m.lastSync || 0,
+    remoteRev: m.remoteRev || null,
+    status: { state: st.state, detail: st.detail, issue: st.issue },
+    serviceWorker: sw,
+    redirectUri: typeof redirectUri === 'function' ? redirectUri() : null,
+  };
+}
 
 /* ---------- snapshot ---------- */
 function gcTombstones(m) {
@@ -242,7 +269,11 @@ async function pkce() {
 }
 async function startDropboxAuth() {
   const cfg = await getSyncCfg();
-  if (!cfg.appKey) { toast('Enter your Dropbox app key first'); return; }
+  if (!cfg.appKey) {
+    setStatus('missing-app-key', 'Add your Dropbox app key, then connect', 'missing-app-key');
+    toast('Enter your Dropbox app key first');
+    return;
+  }
   const { verifier, challenge } = await pkce();
   sessionStorage.setItem('ledger.pkce', verifier);
   const u = new URL('https://www.dropbox.com/oauth2/authorize');
@@ -260,7 +291,14 @@ async function finishDropboxAuth(code) {
   if (!verifier) throw new Error('Auth session expired, connect again');
   const body = new URLSearchParams({ code, grant_type: 'authorization_code', client_id: cfg.appKey, code_verifier: verifier, redirect_uri: redirectUri() });
   const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-  if (!r.ok) throw new Error('Dropbox auth failed: ' + (await r.text()).slice(0, 120));
+  if (!r.ok) {
+    const text = await r.text();
+    const classified = typeof LedgerSyncIssues !== 'undefined'
+      ? LedgerSyncIssues.classifyHttpStatus(r.status, text)
+      : null;
+    if (classified?.message === 'REDIRECT_MISMATCH') throw new Error('REDIRECT_MISMATCH');
+    throw new Error('AUTH_FAILED');
+  }
   const j = await r.json();
   cfg.refreshToken = j.refresh_token; cfg.accessToken = j.access_token;
   cfg.expiresAt = Date.now() + (j.expires_in || 14400) * 1000; cfg.enabled = true;
@@ -273,7 +311,18 @@ async function accessToken() {
   if (!cfg.refreshToken) throw new Error('NOT_CONNECTED');
   const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: cfg.refreshToken, client_id: cfg.appKey });
   const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-  if (!r.ok) { cfg.accessToken = null; if (r.status === 400) { cfg.refreshToken = null; await saveSyncCfg(); throw new Error('NEEDS_RECONNECT'); } throw new Error('Dropbox token refresh failed'); }
+  if (!r.ok) {
+    cfg.accessToken = null;
+    if (r.status === 400) { cfg.refreshToken = null; await saveSyncCfg(); throw new Error('NEEDS_RECONNECT'); }
+    const text = await r.text();
+    const classified = typeof LedgerSyncIssues !== 'undefined'
+      ? LedgerSyncIssues.classifyHttpStatus(r.status, text)
+      : null;
+    if (classified?.code === 'RATE_LIMIT') {
+      const e = new Error('RATE_LIMIT'); e.code = 'RATE_LIMIT'; throw e;
+    }
+    throw new Error('AUTH_FAILED');
+  }
   const j = await r.json();
   cfg.accessToken = j.access_token; cfg.expiresAt = Date.now() + (j.expires_in || 14400) * 1000;
   await saveSyncCfg();
@@ -286,6 +335,12 @@ async function downloadRemote() {
     headers: { Authorization: 'Bearer ' + tok, 'Dropbox-API-Arg': JSON.stringify({ path: REMOTE_PATH }) },
   });
   if (r.status === 409) return null;                      // path/not_found: no file yet, safe to create
+  if (r.status === 429 || r.status === 503) {
+    const e = new Error('RATE_LIMIT');
+    e.code = 'RATE_LIMIT';
+    e.retryAfter = +(r.headers.get('Retry-After') || 5);
+    throw e;
+  }
   if (!r.ok) throw new Error('Dropbox download failed: ' + r.status);
   const meta = JSON.parse(r.headers.get('dropbox-api-result') || '{}');
   const snap = await decryptSnapshot(await r.arrayBuffer());   // throws -> fatal, never falls through to create
@@ -334,14 +389,18 @@ async function doSync() {
         throw e;
       }
     }
-    setStatus('error', 'Too many conflicts, will retry');
+    setStatus('conflict', 'Edits collided on Dropbox — retrying on the next change or Sync now', 'dropbox-conflict');
   } catch (e) {
     console.error('sync failed', e);
-    if (e.message === 'WRONG_PASSPHRASE') setStatus('error', 'Passphrase does not match the data in Dropbox');
-    else if (e.message === 'NOT_LEDGER_FILE') setStatus('error', 'That Dropbox file is not a Ledger snapshot');
-    else if (e.message === 'NEEDS_RECONNECT') setStatus('needs-auth', 'Reconnect Dropbox');
-    else if (!navigator.onLine || e instanceof TypeError) setStatus('offline');
-    else setStatus('error', e.message.slice(0, 80));
+    const classified = typeof LedgerSyncIssues !== 'undefined'
+      ? LedgerSyncIssues.classifySyncFailure(e, typeof navigator === 'undefined' ? true : navigator.onLine)
+      : null;
+    if (classified) setStatus(classified.state, classified.detail, classified.issue);
+    else if (e.message === 'WRONG_PASSPHRASE') setStatus('error', 'Passphrase does not match the data in Dropbox', 'wrong-passphrase');
+    else if (e.message === 'NOT_LEDGER_FILE') setStatus('error', 'That Dropbox file is not a Ledger snapshot', 'invalid-remote-file');
+    else if (e.message === 'NEEDS_RECONNECT') setStatus('needs-auth', 'Reconnect Dropbox', 'reconnect-required');
+    else if (!navigator.onLine || e instanceof TypeError) setStatus('offline', 'No network — changes stay on this device until you are back online', 'offline');
+    else setStatus('error', e.message.slice(0, 80), 'sync-error');
   }
 }
 /* Mutex with a re-run flag: a mutation landing mid-sync must not be dropped. */
@@ -386,7 +445,23 @@ async function initSync() {
       history.replaceState({}, '', redirectUri());
       toast('Dropbox connected. Enter the shared passphrase to start syncing.');
     }
-    catch (e) { toast(e.message); history.replaceState({}, '', redirectUri()); }
+    catch (e) {
+      const classified = typeof LedgerSyncIssues !== 'undefined'
+        ? LedgerSyncIssues.classifySyncFailure(e, typeof navigator === 'undefined' ? true : navigator.onLine)
+        : null;
+      if (classified && classified.issue !== 'sync-error') {
+        setStatus(classified.state, classified.detail, classified.issue);
+        toast(classified.issue === 'redirect-mismatch'
+          ? 'Redirect URI mismatch — check Dropbox app settings'
+          : classified.issue === 'auth-failure'
+            ? 'Dropbox sign-in failed'
+            : classified.detail);
+      } else {
+        setStatus('error', e.message.slice(0, 80), 'sync-error');
+        toast(e.message);
+      }
+      history.replaceState({}, '', redirectUri());
+    }
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -407,4 +482,136 @@ async function initSync() {
       showSettings();
     }
   } else setStatus('off');
+}
+
+/* ---------- Settings diagnostics UI ----------
+   Defined here so the panel ships even when index.html cannot be rewritten
+   (large static file). This file loads after the app script and replaces
+   the Settings sync renderer. Secrets are never interpolated into the DOM. */
+function ensureSyncDiagStyles() {
+  if (typeof document === 'undefined' || document.getElementById('sync-diag-css')) return;
+  const style = document.createElement('style');
+  style.id = 'sync-diag-css';
+  style.textContent = [
+    '.sync-diagnostics { margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: 11px; background: color-mix(in srgb, var(--card) 92%, var(--bg)); }',
+    '.sync-diagnostics h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; letter-spacing: .02em; }',
+    '.sync-diagnostics dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 38%) 1fr; gap: 6px 10px; font-size: 13px; }',
+    '.sync-diagnostics dt { color: var(--muted); margin: 0; }',
+    '.sync-diagnostics dd { margin: 0; color: var(--ink); line-height: 1.4; }',
+    '.sync-diagnostics .sync-next { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 13px; }',
+    '.sync-diagnostics .sync-next strong { color: var(--ink); }',
+  ].join('\n');
+  document.head.appendChild(style);
+}
+
+async function getServiceWorkerDiagnostics() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return { supported: false, controller: false, cacheVersion: null, update: 'unsupported' };
+  }
+  let cacheVersion = null;
+  try {
+    const r = await fetch('./sw.js', { cache: 'no-store' });
+    const text = await r.text();
+    const m = text.match(/const CACHE = '([^']+)'/);
+    cacheVersion = m ? m[1] : 'unknown';
+  } catch {
+    cacheVersion = 'unavailable';
+  }
+  const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+  const controller = !!navigator.serviceWorker.controller;
+  let update = 'none';
+  if (reg?.waiting) update = 'waiting';
+  else if (reg?.installing) update = 'installing';
+  else if (reg?.active && !controller) update = 'pending-control';
+  return {
+    supported: true,
+    controller,
+    cacheVersion,
+    activeState: reg?.active?.state || (controller ? 'activated' : 'none'),
+    update,
+    scope: reg?.scope || null,
+  };
+}
+
+async function renderSyncPanel() {
+  const el = typeof $ === 'function' ? $('#syncPanel') : null;
+  if (!el) return;
+  ensureSyncDiagStyles();
+  if (typeof getSyncCfg !== 'function') { el.textContent = 'Sync module not loaded.'; return; }
+  const cfg = await getSyncCfg();
+  const st = getStatus();
+  const m = await getMeta();
+  const diag = await getSyncDiagnostics();
+  const connected = cfg.enabled && cfg.refreshToken;
+  const needsPassphrase = connected && !hasPassphrase();
+  const labels = (typeof LedgerSyncIssues !== 'undefined' && LedgerSyncIssues.SYNC_LABEL) || {
+    off: 'Not connected', idle: 'Connected', syncing: 'Syncing…', ok: 'Synced',
+    offline: 'Offline', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect Dropbox',
+    'missing-app-key': 'App key required', 'redirect-mismatch': 'Redirect URI mismatch',
+    'auth-failure': 'Sign-in failed', conflict: 'Dropbox conflict', 'rate-limit': 'Dropbox rate limit',
+  };
+  const issue = st.issue || (!diag.appKeyConfigured ? 'missing-app-key' : null);
+  const nextAction = typeof LedgerSyncIssues !== 'undefined'
+    ? LedgerSyncIssues.syncIssueAction(issue, diag)
+    : (st.detail || 'Connect Dropbox, then set the shared passphrase on both devices.');
+  const sw = diag.serviceWorker;
+  const swLine = !sw ? 'Unavailable' : !sw.supported ? 'Not supported in this browser'
+    : `${sw.controller ? 'Controlling this tab' : 'Not controlling yet'} · cache ${esc(sw.cacheVersion || '?')}${sw.update !== 'none' ? ` · update ${esc(sw.update)}` : ''}`;
+  const problemStates = ['error', 'needs-auth', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'conflict', 'rate-limit'];
+  el.innerHTML = `
+    <div class="formrow" style="margin-top:10px"><label>Status</label>
+      <span class="pill ${problemStates.includes(st.state) ? 'grey' : ''}">${esc(labels[st.state] || st.state)}</span>
+      ${connected ? `<span class="sub num">last sync ${esc(relTime(m.lastSync))}</span>` : ''}
+      ${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</div>
+    <section class="sync-diagnostics" aria-labelledby="syncDiagHeading">
+      <h3 id="syncDiagHeading">Sync diagnostics</h3>
+      <dl>
+        <dt>Service worker</dt><dd>${swLine}</dd>
+        <dt>App key</dt><dd>${diag.appKeyConfigured ? 'Configured (hidden)' : 'Not set — paste key below'}</dd>
+        <dt>Dropbox</dt><dd>${connected ? 'Connected to your app folder' : 'Not connected'}</dd>
+        <dt>Passphrase</dt><dd>${hasPassphrase() ? 'Ready on this device' : 'Not entered on this device'}</dd>
+        <dt>Last successful sync</dt><dd class="num">${esc(m.lastSync ? new Date(m.lastSync).toLocaleString() : 'Never')}</dd>
+      </dl>
+      <div class="sync-next"><strong>Next step:</strong> ${esc(nextAction)}</div>
+    </section>
+    ${!connected ? `
+      <div class="formrow"><label>Dropbox app key</label><input id="syAppKey" value="" autocomplete="off" placeholder="${cfg.appKey ? 'App key saved (hidden)' : 'from dropbox.com/developers'}"></div>
+      <div class="sub">In Dropbox Developer Console → Settings → OAuth 2 → Redirect URIs, add this exact address: <code>${esc(typeof redirectUri === 'function' ? redirectUri() : location.href)}</code>. Save there, reload this page, then connect.</div>
+      <div class="sub">If you want this key to survive new previews or rebuilds, drop a <code>sync-config.json</code> beside the app with <code>{"appKey":"..."}</code>.</div>
+      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect Dropbox</button></div>`
+    : `
+      ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>Dropbox is connected — one more step.</strong><p>Enter the same passphrase used on the other device. Dropbox never stores it, so reconnecting alone cannot start syncing.</p></div>` : ''}
+      <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other device'}">
+        <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember on this device</label>
+        <button class="ghost sm" id="sySetPass">${needsPassphrase ? 'Unlock & sync' : 'Update'}</button></div>
+      <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the Dropbox copy is unrecoverable.</div>
+      <div class="formrow" style="justify-content:flex-end; margin-top:10px">
+        <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
+        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
+
+  if (!connected) {
+    $('#syConnect').onclick = async () => {
+      const c = await getSyncCfg();
+      const typed = $('#syAppKey').value.trim();
+      if (typed) c.appKey = typed;
+      await saveSyncCfg();
+      startDropboxAuth();
+    };
+  } else {
+    $('#sySetPass').onclick = async () => {
+      const p = $('#syPass').value;
+      if (p.length < 8) { toast('Use at least 8 characters'); return; }
+      await setPassphrase(p, $('#syRemember').checked);
+      toast('Passphrase set — syncing now'); renderSyncPanel(); syncNow();
+    };
+    $('#sySync').onclick = () => syncNow();
+    $('#syDisconnect').onclick = async () => {
+      if (!confirm('Disconnect this device from Dropbox? Local data stays; the other device is untouched.')) return;
+      await disconnectSync(); renderSyncPanel();
+    };
+    if (needsPassphrase && syncFocusPassphrase) {
+      syncFocusPassphrase = false;
+      requestAnimationFrame(() => $('#syPass')?.focus());
+    }
+  }
 }

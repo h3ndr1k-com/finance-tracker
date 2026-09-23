@@ -20,11 +20,15 @@ A proposed daily review-queue (still no bank creds in the PWA) is documented in 
 
 ## Sync (optional, two devices)
 
-Off by default. When on, each device encrypts a full snapshot with a passphrase and stores it at `/Apps/Ledger/ledger.bin` in your Dropbox. Dropbox holds ciphertext it cannot read, and the static host never sees your data at all.
+Off by default. When on, each device encrypts a full snapshot with a passphrase and stores it at `/Apps/Ledger/ledger.bin` in your Dropbox **app folder**. Dropbox holds ciphertext it cannot read, and the static host never sees your data at all.
+
+**Both devices must use the same Dropbox account and the same Ledger app folder snapshot** (same Dropbox developer app + Connect on each device). The app-folder design does **not** merge two separate Dropbox accounts — there is one encrypted `ledger.bin` per app, not a bridge between unrelated accounts.
 
 1. **Create a Dropbox app** at [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps): choose *Scoped access* → *App folder* → name it. Under **Permissions** enable `files.content.read` and `files.content.write`. Under **Settings → OAuth 2 → Redirect URIs** add your deployed URL (e.g. `https://ledger-xyz.vercel.app/`) and `http://localhost:8000/` if you develop locally. Copy the **App key**.
-2. **On each device:** Settings → Sync → paste the App key → Connect Dropbox → approve.
+2. **On each device:** Settings → Sync → paste the App key → Connect Dropbox → approve **the same Dropbox account**.
 3. **On each device:** set the **same passphrase**. This is what encrypts the file.
+
+If sync fails, open **Settings → Sync diagnostics** for service-worker state, connection status, and a concrete next step (missing app key, redirect URI mismatch, reconnect, offline, wrong passphrase, or Dropbox conflict/rate limit). Secrets (app key, tokens, passphrase) are never shown there.
 
 After that it syncs on open, on focus, and a few seconds after any edit. There's also a manual **Sync now**.
 
@@ -47,4 +51,12 @@ Two people editing *the same transaction* within one sync window: the later edit
 
 ## Design handoff
 
-The production design system lives in [`design-assets/`](design-assets/): concept explorations, light/dark tokens, component snippets, responsive mockups, and the printable style guide. See [`IMPLEMENTATION_NOTES.txt`](IMPLEMENTATION_NOTES.txt) for the hover/refresh root-cause report and QA checklist. Run `tests/ui-qa.js` with Playwright available on `NODE_PATH`; set `LEDGER_QA_BROWSER` to `firefox` or `webkit` for the cross-engine checks.
+The production design system lives in [`design-assets/`](design-assets/): concept explorations, light/dark tokens, component snippets, responsive mockups, and the printable style guide. See [`IMPLEMENTATION_NOTES.txt`](IMPLEMENTATION_NOTES.txt) for the hover/refresh root-cause report and QA checklist.
+
+```bash
+npm install
+npx playwright install chromium
+npm test
+```
+
+`npm test` runs unit checks (`sw.js` / sync issue mapping), UI QA, and the PWA/sync regression (service-worker upgrade + mobile tab bar + diagnostics). Set `LEDGER_QA_BROWSER` to `firefox` or `webkit` for the cross-engine UI checks.
