@@ -1,10 +1,11 @@
 importScripts('./reminders.js');
 
-const CACHE = 'ledger-v27';
+const CACHE = 'ledger-v28';
 const ASSETS = [
   './',
   './index.html',
   './sync.js',
+  './sync-issues.js',
   './reminders.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
