@@ -12,6 +12,8 @@ Empty on first open: click **Load sample data** (or Settings → Load sample dat
 
 **Credit card:** the web portal's "Download transactions / statement → CSV". **Wealthsimple:** Activity → Export, or Statements → CSV, once per account. Drag the files onto the app, confirm the column mapping once per format (it's remembered per file layout), and re-importing overlapping statements adds zero duplicates. There is no live bank connection by design - that needs a server holding your credentials, which is the one thing this app refuses to be.
 
+A proposed daily review-queue (still no bank creds in the PWA) is documented in [`docs/adr/0001-household-payment-automation.md`](docs/adr/0001-household-payment-automation.md) and exercised by the mocked spike in [`spike/household-ingest/`](spike/household-ingest/).
+
 **Exchange rates:** Settings → enter EUR-per-unit rates for USD/CAD (e.g. USD 0.92). Everything converts to your base currency (default CAD) through these manual rates; edit one and every view recalculates. Originals are never overwritten.
 
 **Jars** are T. Harv Eker allocation buckets - income auto-splits by percentage, spending draws from each category's jar, all editable. The **Recurring** panel on Overview auto-detects subscriptions and flags price hikes.

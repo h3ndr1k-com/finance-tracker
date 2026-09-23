@@ -1,0 +1,41 @@
+{
+  "note": "Same provider IDs as day-1 plus one new row. Used to prove idempotency.",
+  "transactions": [
+    {
+      "provider": "mock-plaid",
+      "providerTxId": "mock_txn_001",
+      "date": "2026-09-20",
+      "description": "MOCK GROCER NORTH YORK",
+      "amount": -54.21,
+      "currency": "CAD",
+      "account": "Chequing"
+    },
+    {
+      "provider": "mock-plaid",
+      "providerTxId": "mock_txn_002",
+      "date": "2026-09-21",
+      "description": "MOCK TRANSIT PRESTO",
+      "amount": -3.70,
+      "currency": "CAD",
+      "account": "Chequing"
+    },
+    {
+      "provider": "mock-csv",
+      "providerTxId": null,
+      "date": "2026-09-18",
+      "description": "MOCK PAYROLL ACME",
+      "amount": 2100.00,
+      "currency": "CAD",
+      "account": "Chequing"
+    },
+    {
+      "provider": "mock-plaid",
+      "providerTxId": "mock_txn_003",
+      "date": "2026-09-22",
+      "description": "MOCK COFFEE QUEEN WEST",
+      "amount": -5.65,
+      "currency": "CAD",
+      "account": "Amex"
+    }
+  ]
+}

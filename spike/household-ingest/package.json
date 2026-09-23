@@ -1,0 +1,10 @@
+{
+  "name": "ledger-household-ingest-spike",
+  "private": true,
+  "description": "Mocked daily review-queue spike. No real bank credentials.",
+  "scripts": {
+    "test": "node --test tests/spike.test.js",
+    "once": "node bin/run.js --once --fixture fixtures/day-1.json",
+    "api": "node bin/api.js"
+  }
+}
