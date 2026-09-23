@@ -5,12 +5,13 @@ const issues = require('../sync-issues.js');
 
 test('named failure states have a next action and never mention secrets', () => {
   const named = [
-    'missing-app-key', 'redirect-mismatch', 'auth-failure', 'reconnect-required',
+    'missing-household-token', 'missing-app-key', 'redirect-mismatch', 'auth-failure', 'reconnect-required',
     'offline', 'wrong-passphrase-or-missing', 'wrong-passphrase',
     'dropbox-conflict', 'dropbox-rate-limit', 'invalid-remote-file', 'sync-error',
+    'sync-server-unavailable',
   ];
   for (const issue of named) {
-    const action = issues.syncIssueAction(issue, { appKeyConfigured: true, dropboxConnected: true, passphraseReady: true });
+    const action = issues.syncIssueAction(issue, { householdConfigured: true, householdConnected: true, appKeyConfigured: true, dropboxConnected: false, passphraseReady: true });
     assert.ok(action.length > 20, issue + ' needs a user-actionable next step');
     assert.doesNotMatch(action, /pk\.[a-z0-9]/i);
     assert.doesNotMatch(action, /sl\.[a-z0-9]/i);
@@ -35,6 +36,7 @@ test('classifySyncFailure covers OAuth, reconnect, offline, conflict, and rate l
   assert.equal(issues.classifySyncFailure({ message: 'REDIRECT_MISMATCH' }, true).issue, 'redirect-mismatch');
   assert.equal(issues.classifySyncFailure({ message: 'AUTH_FAILED' }, true).issue, 'auth-failure');
   assert.equal(issues.classifySyncFailure({ message: 'NEEDS_RECONNECT' }, true).issue, 'reconnect-required');
+  assert.equal(issues.classifySyncFailure({ message: 'SYNC_SERVER_UNAVAILABLE' }, true).issue, 'sync-server-unavailable');
   assert.equal(issues.classifySyncFailure({ message: 'WRONG_PASSPHRASE' }, true).issue, 'wrong-passphrase');
   assert.equal(issues.classifySyncFailure({ message: 'RATE_LIMIT', code: 'RATE_LIMIT' }, true).issue, 'dropbox-rate-limit');
   assert.equal(issues.classifySyncFailure({ message: 'CONFLICT', code: 'CONFLICT' }, true).issue, 'dropbox-conflict');
@@ -49,10 +51,11 @@ test('classifyHttpStatus distinguishes redirect mismatch from generic auth failu
   assert.equal(issues.classifyHttpStatus(409, '').code, 'CONFLICT');
 });
 
-test('ready and missing-key fallbacks do not expose an app key', () => {
-  const missing = issues.syncIssueAction(null, { appKeyConfigured: false, dropboxConnected: false, passphraseReady: false });
-  assert.match(missing, /App key/i);
+test('ready and missing-token fallbacks do not expose secrets', () => {
+  const missing = issues.syncIssueAction(null, { householdConfigured: false, householdConnected: false, appKeyConfigured: false, dropboxConnected: false, passphraseReady: false });
+  assert.match(missing, /household token/i);
   assert.doesNotMatch(missing, /pk\./);
-  const ready = issues.syncIssueAction(null, { appKeyConfigured: true, dropboxConnected: true, passphraseReady: true });
+  assert.doesNotMatch(missing, /ledger_/);
+  const ready = issues.syncIssueAction(null, { householdConfigured: true, householdConnected: true, appKeyConfigured: false, dropboxConnected: false, passphraseReady: true });
   assert.match(ready, /Sync is ready/);
 });

@@ -105,10 +105,19 @@ function assert(condition, message) {
   await page.waitForTimeout(300);
   assert(await page.locator('#syncDiagHeading').isVisible(), 'Sync diagnostics section missing');
   const diagText = await page.locator('.sync-diagnostics').innerText();
-  assert(/App key/i.test(diagText) && /Configured|Not set/i.test(diagText), 'App key diagnostic line missing');
+  assert(/Household token/i.test(diagText) && /Configured|Not set/i.test(diagText), 'Household token diagnostic line missing');
+  assert(/Sync bus/i.test(diagText), 'Sync bus diagnostic line missing');
   assert(!/pk\.[a-z0-9_-]{10,}/i.test(diagText), 'Diagnostics must not show an app key value');
+  assert(!/ledger_[a-f0-9]{16,}/i.test(diagText), 'Diagnostics must not show a household token');
   assert(/Next step/i.test(diagText), 'Diagnostics must show a next step');
-  assert(await page.locator('#syAppKey').getAttribute('value') === '', 'App key input must not echo a saved key');
+  assert(await page.locator('#syHouseholdToken').getAttribute('value') === '', 'Household token input must not echo a saved token');
+  assert(await page.locator('#syConnect').innerText().then((t) => /household/i.test(t)), 'Connect household button missing');
+
+  const apiNoAuth = await page.evaluate(async () => {
+    const r = await fetch('./api/sync', { cache: 'no-store' });
+    return r.status;
+  });
+  assert(apiNoAuth === 401, `Household API without token should be 401, got ${apiNoAuth}`);
 
   assert(errors.length === 0, `Page errors: ${errors.join(' | ')}`);
 
