@@ -1,9 +1,33 @@
 importScripts('./reminders.js');
 
-const CACHE = 'ledger-v29';
+const CACHE = 'ledger-v31';
+const APP_VIEWPORT = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+
+function applyAppFeelHtml(html) {
+  let out = String(html);
+  if (/name=["']viewport["']/i.test(out)) {
+    out = out.replace(/<meta\s+name=["']viewport["']\s+content=["'][^"']*["']\s*\/?>/i,
+      '<meta name="viewport" content="' + APP_VIEWPORT + '">');
+  } else {
+    out = out.replace(/<head[^>]*>/i, (m) => m + '\n<meta name="viewport" content="' + APP_VIEWPORT + '">');
+  }
+  if (!/apple-touch-fullscreen/i.test(out)) {
+    out = out.replace('</head>', '<meta name="apple-touch-fullscreen" content="yes">\n<meta name="format-detection" content="telephone=no">\n</head>');
+  }
+  if (!/app-feel\.css/.test(out)) {
+    out = out.replace('</head>', '<link rel="stylesheet" href="./app-feel.css">\n</head>');
+  }
+  if (!/app-feel\.js/.test(out)) {
+    out = out.replace('</head>', '<script src="./app-feel.js"></script>\n</head>');
+  }
+  return out;
+}
+
 const ASSETS = [
   './',
   './index.html',
+  './app-feel.css',
+  './app-feel.js',
   './sync.js',
   './sync-issues.js',
   './reminders.js',
@@ -59,10 +83,14 @@ self.addEventListener('fetch', (e) => {
   if (e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put('./index.html', copy));
-          return response;
+        .then(async (response) => {
+          const text = await response.text();
+          const rewritten = applyAppFeelHtml(text);
+          const headers = new Headers(response.headers);
+          headers.set('Content-Type', 'text/html; charset=utf-8');
+          const next = new Response(rewritten, { status: response.status, statusText: response.statusText, headers });
+          caches.open(CACHE).then((cache) => cache.put('./index.html', next.clone()));
+          return next;
         })
         .catch(() => caches.match('./index.html').then((hit) => hit || caches.match('./')))
     );

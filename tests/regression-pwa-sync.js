@@ -16,6 +16,19 @@ function assert(condition, message) {
 
   const indexSource = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert(!indexSource.includes('127.0.0.1:7453'), 'index.html must not call localhost ingest');
+  const appFeelJs = fs.existsSync(path.join(root, 'app-feel.js'))
+    ? fs.readFileSync(path.join(root, 'app-feel.js'), 'utf8') : '';
+  const appFeelCss = fs.existsSync(path.join(root, 'app-feel.css'))
+    ? fs.readFileSync(path.join(root, 'app-feel.css'), 'utf8') : '';
+  const viewportLocked = (/maximum-scale=1/.test(indexSource) && /user-scalable=no/.test(indexSource))
+    || (/maximum-scale=1/.test(swSource) && /user-scalable=no/.test(swSource))
+    || (/maximum-scale=1/.test(appFeelJs) && /user-scalable=no/.test(appFeelJs));
+  assert(viewportLocked, 'viewport must lock pinch-zoom in HTML, SW rewrite, or app-feel.js');
+  assert(/viewport-fit=cover/.test(indexSource) || /viewport-fit=cover/.test(swSource) || /viewport-fit=cover/.test(appFeelJs), 'viewport must include safe-area cover');
+  assert(/gesturestart/.test(indexSource) || /gesturestart/.test(appFeelJs), 'iOS pinch gesture must be cancelled');
+  assert(/overflow-x:\s*hidden/.test(indexSource) || /overflow-x:\s*hidden/.test(appFeelCss), 'horizontal overflow must be clipped');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
+  assert(manifest.display === 'standalone', 'PWA must install as standalone');
   assert(!fs.readFileSync(path.join(root, 'sync.js'), 'utf8').includes('127.0.0.1:7453'), 'sync.js must not call localhost ingest');
 
   let server = null;
@@ -78,6 +91,19 @@ function assert(condition, message) {
     if (!d.supported || !d.cacheVersion) throw new Error('SW diagnostics incomplete');
   });
 
+  const viewportMeta = await page.locator('meta[name="viewport"]').getAttribute('content');
+  assert(/maximum-scale=1/.test(viewportMeta || '') && /user-scalable=no/.test(viewportMeta || ''), 'Live viewport still allows pinch-zoom');
+  const layoutBleed = await page.evaluate(() => {
+    const root = document.scrollingElement || document.documentElement;
+    return {
+      scrollWidth: root.scrollWidth,
+      clientWidth: root.clientWidth,
+      overflowX: getComputedStyle(document.documentElement).overflowX,
+    };
+  });
+  assert(layoutBleed.scrollWidth <= layoutBleed.clientWidth + 1, `Horizontal overflow ${layoutBleed.scrollWidth} > ${layoutBleed.clientWidth}`);
+  assert(layoutBleed.overflowX === 'hidden', 'html overflow-x must be hidden');
+
   assert(await page.locator('nav.tabbar').isVisible(), 'Mobile tab bar not visible');
   const tabbarBefore = await page.locator('nav.tabbar').boundingBox();
   await page.evaluate(() => {
@@ -90,7 +116,6 @@ function assert(condition, message) {
   assert(tabbarBefore && tabbarAfterScroll, 'Tab bar bounding box missing');
   assert(Math.abs(tabbarBefore.y - tabbarAfterScroll.y) < 0.5, 'Tab bar moved while scrolling');
 
-  // iOS-like keyboard: shrink the visual viewport; tab bar must stay pinned to the shell.
   await page.setViewportSize({ width: 390, height: 540 });
   await page.locator('#fSearch').focus();
   await page.waitForTimeout(250);

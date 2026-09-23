@@ -108,6 +108,14 @@
     return { state: 'error', detail: msg.slice(0, 80) || 'Sync problem', issue: 'sync-error' };
   }
 
+  function classifyHouseholdConnectStatus(status) {
+    const code = Number(status);
+    if (code === 200 || code === 404 || code === 204) return { ok: true };
+    if (code === 401 || code === 403) return { ok: false, message: 'AUTH_FAILED' };
+    if (code >= 500) return { ok: false, message: 'SYNC_SERVER_UNAVAILABLE' };
+    return { ok: false, message: 'AUTH_FAILED' };
+  }
+
   function classifyHttpStatus(status, body) {
     const text = String(body || '');
     if (status === 429 || status === 503) {
@@ -131,6 +139,7 @@
     inferSyncIssue,
     syncIssueAction,
     classifySyncFailure,
+    classifyHouseholdConnectStatus,
     classifyHttpStatus,
   };
 });
