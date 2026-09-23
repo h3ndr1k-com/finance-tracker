@@ -1,10 +1,10 @@
 # Ledger
 
-Local, private, multi-currency personal finance tracker. No accounts, no backend, no build step. Data lives in your browser (IndexedDB); optional two-device sync goes through **your own Dropbox**, encrypted before it leaves the device.
+Local, private, multi-currency personal finance tracker. No accounts, no build step. Data lives in your browser (IndexedDB). Optional live sync uses a **first-party household API** on the same site: one encrypted LED1 snapshot, shared household token, no Dropbox or Google OAuth.
 
 ## Run it
 
-Service workers don't run from `file://`, so serve the folder: `python3 -m http.server 8000`, open `http://localhost:8000`. For phones, deploy the folder as a static site (Vercel: `vercel --prod`) and open the https URL - then "Add to Home Screen" on each device. Works fully offline after first load.
+Service workers don't run from `file://`. For UI-only local work, `python3 -m http.server 8000` still works. Household sync needs the `/api/sync` function: `npx vercel dev` or the test static server (`node -e "require('./tests/static-server').startStaticServer(8000).then(({port})=>console.log(port))"`). Production is the Vercel deploy — open the https URL, then Add to Home Screen on each phone. Works fully offline after first load; sync runs when you are back online.
 
 Empty on first open: click **Load sample data** (or Settings → Load sample data) to explore a 3-month multi-currency dataset, then **Wipe all data** and drop in your real CSVs.
 
@@ -18,23 +18,20 @@ A proposed daily review-queue (still no bank creds in the PWA) is documented in 
 
 **Jars** are T. Harv Eker allocation buckets - income auto-splits by percentage, spending draws from each category's jar, all editable. The **Recurring** panel on Overview auto-detects subscriptions and flags price hikes.
 
-## Sync (optional, two devices)
+## Sync (optional, household devices)
 
-Off by default. When on, each device encrypts a full snapshot with a passphrase and stores it at `/Apps/Ledger/ledger.bin` in your Dropbox **app folder**. Dropbox holds ciphertext it cannot read, and the static host never sees your data at all.
+Off by default. When on, each device encrypts a full snapshot with a passphrase (LED1 / AES-GCM) and `GET`/`PUT`s that ciphertext to **`/api/sync` on this same origin**. The server stores bytes it cannot read. Connect never leaves the home-screen PWA — there is no OAuth redirect.
 
-**Both devices must use the same Dropbox account and the same Ledger app folder snapshot** (same Dropbox developer app + Connect on each device). The app-folder design does **not** merge two separate Dropbox accounts — there is one encrypted `ledger.bin` per app, not a bridge between unrelated accounts.
+**Every device uses the same household token and the same passphrase.** That is one household identity and one ciphertext (issue #13). Disconnect or wipe on one phone does not wipe the others or the household copy.
 
-1. **Create a Dropbox app** at [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps): choose *Scoped access* → *App folder* → name it. Under **Permissions** enable `files.content.read` and `files.content.write`. Under **Settings → OAuth 2 → Redirect URIs** add your deployed URL (e.g. `https://ledger-xyz.vercel.app/`) and `http://localhost:8000/` if you develop locally. Copy the **App key**.
-2. **On each device:** Settings → Sync → paste the App key → Connect Dropbox → approve **the same Dropbox account**.
-3. **On each device:** set the **same passphrase**. This is what encrypts the file.
+1. **Once on the host:** set `HOUSEHOLD_SYNC_TOKEN` in the Vercel project (encrypted env). Production also uses the private Blob store (`BLOB_READ_WRITE_TOKEN`) for `household/ledger.bin`. Local tests use a temp directory.
+2. **Once on each device** (Hendrik’s phone, desktop, and the other phone): open Ledger → Settings → Sync → paste the household token → **Connect household** → enter the **same passphrase** → Unlock & sync.
 
-If sync fails, open **Settings → Sync diagnostics** for service-worker state, connection status, and a concrete next step (missing app key, redirect URI mismatch, reconnect, offline, wrong passphrase, or Dropbox conflict/rate limit). Secrets (app key, tokens, passphrase) are never shown there.
+If sync fails, open **Settings → Sync diagnostics** for service-worker state, connection status, and a concrete next step (missing token, reconnect, offline, wrong passphrase, conflict/rate limit). Secrets (token, passphrase) are never shown there.
 
 After that it syncs on open, on focus, and a few seconds after any edit. There's also a manual **Sync now**.
 
-If you want the Dropbox app key to survive preview rebuilds or branch checkouts, you can also serve a small `sync-config.json` next to the app with `{ "appKey": "..." }`. The app will use it as a bootstrap when the saved browser state is empty.
-
-**Keep a passphrase you won't lose.** It never leaves your devices and there is no reset - if you both forget it, the Dropbox copy is unrecoverable. Export JSON is the escape hatch; keep one somewhere safe.
+**Keep a passphrase you won't lose.** It never leaves your devices and there is no reset — if you both forget it, the household copy is unrecoverable. Export JSON is the escape hatch; keep one somewhere safe.
 
 ### How conflicts resolve
 
@@ -47,7 +44,7 @@ Two people editing *the same transaction* within one sync window: the later edit
 
 **Not synced:** receipt images (the transaction and its data sync; the photo stays on the device that scanned it), and your light/dark theme (deliberately per-device). Sync needs IndexedDB, so it's unavailable in private-browsing modes.
 
-**Wipe all data** clears this device and unlinks it from Dropbox. The other device is untouched.
+**Wipe all data** or **Disconnect** clears this device only. The other devices and the household snapshot stay.
 
 ## Design handoff
 

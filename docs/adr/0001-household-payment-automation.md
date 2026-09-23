@@ -21,7 +21,7 @@ This ADR picks the smallest privacy-preserving server-side path and records deci
 
 **Household model:** one shared household identity and one canonical ledger, with two device sessions. Not per-spouse RBAC in v1.
 
-**Sync:** keep **client-side encryption** for the canonical snapshot (today: Dropbox `ledger.bin`). The review queue is a short-lived server-side list of *proposals*. After approval, the PWA applies rows locally (same `txHash` as CSV import) and Dropbox merge remains the two-device bus until a later household-sync service replaces it.
+**Sync (updated #13):** the live bus is first-party `GET`/`PUT /api/sync` with a shared household bearer token. The body is the existing **LED1** ciphertext. No Dropbox or Google OAuth. The review queue remains a short-lived server-side list of *proposals* (issues #10–#12, not this change). After approval, the PWA will still apply rows locally (same `txHash` as CSV import) and household merge stays last-write-wins per record.
 
 **Do not** put bank credentials, OAuth refresh tokens for banks, or raw statements in Dropbox or IndexedDB.
 
@@ -51,7 +51,7 @@ Open-banking in Canada is still institution-by-institution. Do not assume every 
 | Review-queue proposals | Server DB, encrypted at rest | **30 days** or until approved/rejected | Household session |
 | Approved rows | Client IndexedDB + encrypted Dropbox snapshot | Until the household deletes them | Devices with the passphrase |
 | Job logs | Server | **14 days** | Operator |
-| Canonical ledger ciphertext | Dropbox app folder (today) | Household-controlled | Devices with the passphrase; Dropbox cannot read |
+| Canonical ledger ciphertext | First-party `/api/sync` (private Blob; LED1) | Household-controlled | Devices with the passphrase; the host cannot read |
 
 No real financial credentials or live transactions are stored in this repository. The spike uses obviously fake `MOCK *` merchants.
 
