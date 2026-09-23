@@ -76,6 +76,29 @@ function isMissingBlobError(e) {
   return /not found|does not exist|no such (blob|file|key|object)/i.test(msg);
 }
 
+function pickHouseholdBlob(blobs) {
+  const rows = (blobs || []).filter((b) => {
+    const p = String(b && b.pathname || '');
+    return p === BLOB_PATH || /^household\/ledger(\.|-)/.test(p);
+  });
+  if (!rows.length) return null;
+  rows.sort((a, b) => {
+    const size = (Number(b.size) || 0) - (Number(a.size) || 0);
+    if (size) return size;
+    return new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0);
+  });
+  return rows[0];
+}
+
+async function streamToBuffer(stream) {
+  if (!stream) return null;
+  if (Buffer.isBuffer(stream)) return stream;
+  if (typeof stream.arrayBuffer === 'function') return Buffer.from(await stream.arrayBuffer());
+  const chunks = [];
+  for await (const c of stream) chunks.push(Buffer.from(c));
+  return Buffer.concat(chunks);
+}
+
 async function readSnapshot(store) {
   try {
     return await store.read();
@@ -89,8 +112,33 @@ function blobStore(token) {
   return {
     async read() {
       const blob = require('@vercel/blob');
+      const opts = { token, access: 'private', useCache: false };
       try {
-        const meta = await blob.head(BLOB_PATH, { token });
+        if (typeof blob.get === 'function') {
+          const direct = await blob.get(BLOB_PATH, opts);
+          if (direct && direct.stream) {
+            const buf = await streamToBuffer(direct.stream);
+            if (buf && buf.length) return buf;
+          }
+        }
+      } catch (e) {
+        if (!isMissingBlobError(e)) throw e;
+      }
+      // put() may still add a random suffix; head(pathname) then 404s even
+      // after PUT 200. list() sees household/ledger-*.bin — pick the largest
+      // so an empty phone upload cannot hide a populated snapshot.
+      const listed = await blob.list({ prefix: 'household/', token });
+      const chosen = pickHouseholdBlob(listed && listed.blobs);
+      if (!chosen) return null;
+      if (typeof blob.get === 'function') {
+        const via = await blob.get(chosen.url || chosen.pathname, opts);
+        if (via && via.stream) {
+          const buf = await streamToBuffer(via.stream);
+          if (buf && buf.length) return buf;
+        }
+      }
+      try {
+        const meta = await blob.head(chosen.url || chosen.pathname, { token });
         const r = await fetch(meta.url);
         if (!r.ok) return null;
         return Buffer.from(await r.arrayBuffer());
@@ -215,5 +263,6 @@ module.exports = {
   isLed1,
   revOf,
   isMissingBlobError,
+  pickHouseholdBlob,
   BLOB_PATH,
 };
