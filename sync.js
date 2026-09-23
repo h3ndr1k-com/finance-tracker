@@ -176,7 +176,7 @@ function mergeSnapshots(a, b) {
   return out;
 }
 
-async function applySnapshot(snap) {
+async function applySnapshot(snap, opts = {}) {
   const comparable = (source) => {
     const out = {};
     for (const key of Object.keys(SYNC_SCHEMA)) {
@@ -213,8 +213,13 @@ async function applySnapshot(snap) {
   m.txTomb = snap.meta.txTomb; m.kv = snap.meta.kv;
   await saveMeta();
 
-  // Never yank an open form out from under whoever is typing in it.
-  if (document.querySelector('.modal-backdrop.open')) { deferredRender = true; return true; }
+  // Sync must paint Overview even if Settings is still open. Other forms
+  // can still defer so we don't yank a transaction editor mid-type.
+  const settingsOpen = document.getElementById('settingsModal')?.classList.contains('open');
+  if (!opts.forceRender && !settingsOpen && document.querySelector('.modal-backdrop.open')) {
+    deferredRender = true;
+    return true;
+  }
   renderAll();
   return true;
 }
@@ -452,11 +457,23 @@ async function doSync() {
       const remote = await downloadRemote();
       const local = await buildSnapshot();
       const merged = remote ? mergeSnapshots(local, remote.snap) : local;
-      await applySnapshot(merged);
+      await applySnapshot(merged, { forceRender: true });
+      const mayUpload = typeof LedgerSyncIssues === 'undefined'
+        ? !!(merged && merged.transactions && merged.transactions.length)
+        : LedgerSyncIssues.shouldUploadHouseholdSnapshot(merged);
+      if (!mayUpload) {
+        const m = await getMeta(); m.lastSync = Date.now(); await saveMeta();
+        setStatus('ok', remote
+          ? ''
+          : 'Household is empty — tap Sync now on the computer that has the transactions');
+        if (typeof renderAll === 'function') renderAll();
+        return;
+      }
       try {
         const rev = await uploadRemote(merged, remote ? remote.rev : null);
         const m = await getMeta(); m.remoteRev = rev; m.lastSync = Date.now(); await saveMeta();
         setStatus('ok');
+        if (typeof renderAll === 'function') renderAll();
         return;
       } catch (e) {
         if (e.code === 'CONFLICT') { await new Promise(r => setTimeout(r, 300 * Math.pow(2, attempt) + Math.random() * 200)); continue; }

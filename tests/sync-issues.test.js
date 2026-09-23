@@ -44,6 +44,13 @@ test('classifySyncFailure covers OAuth, reconnect, offline, conflict, and rate l
   assert.equal(issues.classifySyncFailure({ message: 'failed' }, false).issue, 'offline');
 });
 
+test('empty snapshots are never uploaded so a later phone cannot wipe the household', () => {
+  assert.equal(issues.snapshotHasLedgerData({ transactions: [] }), false);
+  assert.equal(issues.shouldUploadHouseholdSnapshot({ transactions: [] }), false);
+  assert.equal(issues.shouldUploadHouseholdSnapshot({ transactions: [{ id: 't1', amount: 10 }] }), true);
+  assert.equal(issues.shouldUploadHouseholdSnapshot({ subscriptions: [{ id: 's1' }] }), true);
+});
+
 test('household Connect maps empty-store 404 as success and 5xx as unavailable, not auth failed', () => {
   assert.equal(issues.classifyHouseholdConnectStatus(200).ok, true);
   assert.equal(issues.classifyHouseholdConnectStatus(404).ok, true);

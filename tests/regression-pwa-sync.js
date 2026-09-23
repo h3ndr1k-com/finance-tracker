@@ -105,6 +105,14 @@ function assert(condition, message) {
   assert(layoutBleed.overflowX === 'hidden', 'html overflow-x must be hidden');
 
   assert(await page.locator('nav.tabbar').isVisible(), 'Mobile tab bar not visible');
+  const flush = await page.evaluate(() => {
+    const tab = document.querySelector('nav.tabbar').getBoundingClientRect();
+    const shell = document.getElementById('app-shell').getBoundingClientRect();
+    return { tabBottom: tab.bottom, shellBottom: shell.bottom, shellHeight: shell.height, innerHeight: window.innerHeight };
+  });
+  assert(Math.abs(flush.tabBottom - flush.shellBottom) < 2, 'Tab bar not flush to the bottom of the app shell');
+  assert(Math.abs(flush.shellHeight - flush.innerHeight) < 8, `App shell ${flush.shellHeight} does not fill viewport ${flush.innerHeight}`);
+
   const tabbarBefore = await page.locator('nav.tabbar').boundingBox();
   await page.evaluate(() => {
     const rootEl = document.getElementById('scroll-root');

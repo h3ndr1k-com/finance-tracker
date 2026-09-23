@@ -11,8 +11,8 @@ html, body {
   overflow-x: hidden;
 }
 body {
+  min-height: 100%;
   min-height: 100dvh;
-  min-height: 100svh;
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
 }
@@ -20,8 +20,55 @@ body {
   max-width: 100%;
   overflow-x: hidden;
 }
+.serif,
+header h1,
+.label,
+.card.empty,
+.card.empty .sub,
+.card.empty .serif,
+.site-footer,
+nav.tabbar button {
+  letter-spacing: 0;
+  word-spacing: 0.03em;
+}
+.card.empty,
+.card.empty .sub {
+  line-height: 1.55;
+}
+nav.tabbar button {
+  font-size: 11px;
+}
+@media (max-width: 759px) {
+  html, body {
+    height: 100%;
+    height: 100dvh;
+    min-height: 100%;
+    min-height: -webkit-fill-available;
+  }
+  html body #app-shell {
+    height: 100%;
+    height: 100dvh;
+    min-height: 100%;
+    max-height: none;
+    max-height: 100dvh;
+  }
+}
 @media (display-mode: standalone), (display-mode: fullscreen) {
-  html, body { overscroll-behavior: none; }
+  html, body {
+    overscroll-behavior: none;
+    height: 100%;
+    min-height: 100%;
+    max-height: 100%;
+  }
+  html body #app-shell {
+    height: 100%;
+    min-height: 100%;
+    max-height: 100%;
+  }
+  nav.tabbar {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    margin-bottom: 0;
+  }
 }
 @media (min-width: 760px) {
   html, body {

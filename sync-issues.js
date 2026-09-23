@@ -108,6 +108,18 @@
     return { state: 'error', detail: msg.slice(0, 80) || 'Sync problem', issue: 'sync-error' };
   }
 
+  function snapshotHasLedgerData(snap) {
+    if (!snap || typeof snap !== 'object') return false;
+    if (Array.isArray(snap.transactions) && snap.transactions.length) return true;
+    if (Array.isArray(snap.subscriptions) && snap.subscriptions.length) return true;
+    if (Array.isArray(snap.jars) && snap.jars.length) return true;
+    return false;
+  }
+
+  function shouldUploadHouseholdSnapshot(merged) {
+    return snapshotHasLedgerData(merged);
+  }
+
   function classifyHouseholdConnectStatus(status) {
     const code = Number(status);
     if (code === 200 || code === 404 || code === 204) return { ok: true };
@@ -140,6 +152,8 @@
     syncIssueAction,
     classifySyncFailure,
     classifyHouseholdConnectStatus,
+    shouldUploadHouseholdSnapshot,
+    snapshotHasLedgerData,
     classifyHttpStatus,
   };
 });
