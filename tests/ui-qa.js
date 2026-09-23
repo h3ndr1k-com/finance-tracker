@@ -1,8 +1,8 @@
 const { chromium, firefox, webkit } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const { startStaticServer } = require('./static-server');
 
-const baseURL = process.env.LEDGER_QA_URL || 'http://127.0.0.1:4173';
 const browserName = process.env.LEDGER_QA_BROWSER || 'chromium';
 const browserType = { chromium, firefox, webkit }[browserName];
 const outputDir = path.join(__dirname, '..', 'design-assets', 'mockups');
@@ -24,6 +24,14 @@ function stable(before, after, label) {
 }
 
 (async () => {
+  let server = null;
+  let baseURL = process.env.LEDGER_QA_URL;
+  if (!baseURL) {
+    const started = await startStaticServer(Number(process.env.LEDGER_QA_PORT || 4173));
+    server = started.server;
+    baseURL = `http://127.0.0.1:${started.port}`;
+  }
+
   const browser = await browserType.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -139,14 +147,32 @@ function stable(before, after, label) {
     new Promise((r) => setTimeout(() => r(false), 4000)),
   ]));
   if (swReady) {
+    await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      await reg?.update().catch(() => {});
+    });
     await page.reload({ waitUntil: 'networkidle' });
     assert(await page.evaluate(() => !!navigator.serviceWorker.controller), 'Service worker did not control the refreshed page');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Overview', exact: true }).last().click();
+    await page.waitForTimeout(120);
+    assert(await page.locator('nav.tabbar').isVisible(), 'Mobile tab bar not visible for scroll check');
+    const tabbarBox = await page.locator('nav.tabbar').boundingBox();
+    await page.evaluate(() => {
+      const rootEl = document.getElementById('scroll-root');
+      if (rootEl) rootEl.scrollTop = Math.max(rootEl.scrollHeight, 1200);
+      else window.scrollTo(0, Math.max(document.body.scrollHeight, 1200));
+    });
+    await page.waitForTimeout(180);
+    const tabbarAfter = await page.locator('nav.tabbar').boundingBox();
+    assert(tabbarBox && tabbarAfter && Math.abs(tabbarBox.y - tabbarAfter.y) < 0.5, 'Mobile tab bar moved during scroll');
   }
 
   const unexpected404 = notFoundUrls.filter((u) => !/sync-config\.json/.test(u));
   assert(unexpected404.length === 0, `Unexpected 404s: ${unexpected404.join(' | ')}`);
   assert(errors.length === 0, `Console errors: ${errors.join(' | ')}`);
   await browser.close();
+  if (server) server.close();
   console.log(`${browserName} UI QA passed: stable hover, no hover navigation, persisted refresh, responsive navigation, zero console errors.`);
 })().catch((error) => {
   console.error(error);
