@@ -1,0 +1,37 @@
+/* Installed-PWA chrome: no pinch-zoom blowout, no horizontal bleed, safe-area. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: manipulation;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+body {
+  min-height: 100dvh;
+  min-height: 100svh;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+#app-shell {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  html, body { overscroll-behavior: none; }
+}
+@media (min-width: 760px) {
+  html, body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #app-shell {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+}

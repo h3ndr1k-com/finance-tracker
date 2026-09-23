@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { handleHouseholdSync, isLed1, revOf } = require('../api/household-sync');
+const { handleHouseholdSync, isLed1, revOf, isMissingBlobError } = require('../api/household-sync');
 
 function fakeLed1(fill = 7) {
   const buf = Buffer.alloc(48);
@@ -105,6 +105,20 @@ test('plaintext PUT is rejected so the host cannot be used as a dump', async () 
     body: Buffer.from(JSON.stringify({ transactions: [] })),
   });
   assert.equal(put.res.status, 400);
+});
+
+test('empty Vercel blob (does not exist) is 404, not 500', async () => {
+  const missing = Object.assign(new Error('The requested blob does not exist'), { name: 'BlobNotFoundError' });
+  assert.equal(isMissingBlobError(missing), true);
+  assert.equal(isMissingBlobError(new Error('something else exploded')), false);
+  const store = {
+    async read() { throw missing; },
+    async write() { throw new Error('write should not run'); },
+  };
+  const got = await call('GET', { store, headers: { authorization: 'Bearer secret-token' } });
+  assert.equal(got.res.status, 404);
+  const body = JSON.parse(String(got.res.body));
+  assert.equal(body.error, 'NOT_FOUND');
 });
 
 test('unconfigured server is 503 without leaking the expected token', async () => {

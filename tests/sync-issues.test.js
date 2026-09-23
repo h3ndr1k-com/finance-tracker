@@ -44,6 +44,16 @@ test('classifySyncFailure covers OAuth, reconnect, offline, conflict, and rate l
   assert.equal(issues.classifySyncFailure({ message: 'failed' }, false).issue, 'offline');
 });
 
+test('household Connect maps empty-store 404 as success and 5xx as unavailable, not auth failed', () => {
+  assert.equal(issues.classifyHouseholdConnectStatus(200).ok, true);
+  assert.equal(issues.classifyHouseholdConnectStatus(404).ok, true);
+  assert.equal(issues.classifyHouseholdConnectStatus(204).ok, true);
+  assert.equal(issues.classifyHouseholdConnectStatus(401).message, 'AUTH_FAILED');
+  assert.equal(issues.classifyHouseholdConnectStatus(403).message, 'AUTH_FAILED');
+  assert.equal(issues.classifyHouseholdConnectStatus(500).message, 'SYNC_SERVER_UNAVAILABLE');
+  assert.equal(issues.classifyHouseholdConnectStatus(503).message, 'SYNC_SERVER_UNAVAILABLE');
+});
+
 test('classifyHttpStatus distinguishes redirect mismatch from generic auth failure', () => {
   assert.equal(issues.classifyHttpStatus(400, '{"error":"invalid_redirect"}').message, 'REDIRECT_MISMATCH');
   assert.equal(issues.classifyHttpStatus(401, 'unauthorized').code, 'AUTH_FAILED');
