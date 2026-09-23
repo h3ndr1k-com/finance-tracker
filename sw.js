@@ -1,6 +1,6 @@
 importScripts('./reminders.js');
 
-const CACHE = 'ledger-v28';
+const CACHE = 'ledger-v29';
 const ASSETS = [
   './',
   './index.html',
@@ -53,6 +53,8 @@ self.addEventListener('fetch', (e) => {
   // request into a confusing TypeError instead of a clean network error.
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;
+  // Household sync must never be cache-first (or served as index.html offline).
+  if (url.pathname.startsWith('/api/')) return;
 
   if (e.request.mode === 'navigate') {
     e.respondWith(
