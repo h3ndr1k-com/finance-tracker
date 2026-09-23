@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { handleHouseholdSync, isLed1, revOf, isMissingBlobError } = require('../api/household-sync');
+const { handleHouseholdSync, isLed1, revOf, isMissingBlobError, pickHouseholdBlob } = require('../api/household-sync');
 
 function fakeLed1(fill = 7) {
   const buf = Buffer.alloc(48);
@@ -105,6 +105,16 @@ test('plaintext PUT is rejected so the host cannot be used as a dump', async () 
     body: Buffer.from(JSON.stringify({ transactions: [] })),
   });
   assert.equal(put.res.status, 400);
+});
+
+test('household blob picker prefers the largest LED1 so an empty phone PUT cannot hide data', () => {
+  const picked = pickHouseholdBlob([
+    { pathname: 'household/ledger-aaaa.bin', size: 80, uploadedAt: '2026-09-23T19:38:41Z' },
+    { pathname: 'household/ledger.bin', size: 4200, uploadedAt: '2026-09-23T19:34:23Z' },
+    { pathname: 'other/file.bin', size: 99999, uploadedAt: '2026-09-23T20:00:00Z' },
+  ]);
+  assert.equal(picked.pathname, 'household/ledger.bin');
+  assert.equal(pickHouseholdBlob([]), null);
 });
 
 test('empty Vercel blob (does not exist) is 404, not 500', async () => {
