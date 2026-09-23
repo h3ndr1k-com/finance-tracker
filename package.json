@@ -1,0 +1,12 @@
+{
+  "name": "finance-tracker",
+  "private": true,
+  "scripts": {
+    "test:ui": "node tests/ui-qa.js",
+    "test:pwa": "node tests/regression-pwa-sync.js",
+    "test": "npm run test:ui && npm run test:pwa"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

@@ -139,8 +139,21 @@ function stable(before, after, label) {
     new Promise((r) => setTimeout(() => r(false), 4000)),
   ]));
   if (swReady) {
+    await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      await reg?.update().catch(() => {});
+    });
     await page.reload({ waitUntil: 'networkidle' });
     assert(await page.evaluate(() => !!navigator.serviceWorker.controller), 'Service worker did not control the refreshed page');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Overview', exact: true }).last().click();
+    await page.waitForTimeout(120);
+    assert(await page.locator('nav.tabbar').isVisible(), 'Mobile tab bar not visible for scroll check');
+    const tabbarBox = await page.locator('nav.tabbar').boundingBox();
+    await page.evaluate(() => window.scrollTo(0, Math.max(document.body.scrollHeight, 1200)));
+    await page.waitForTimeout(180);
+    const tabbarAfter = await page.locator('nav.tabbar').boundingBox();
+    assert(tabbarBox && tabbarAfter && Math.abs(tabbarBox.y - tabbarAfter.y) < 0.5, 'Mobile tab bar moved during scroll');
   }
 
   const unexpected404 = notFoundUrls.filter((u) => !/sync-config\.json/.test(u));

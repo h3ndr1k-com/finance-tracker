@@ -15,7 +15,7 @@ let syncBootstrap = undefined;
 let passphrase = null;
 let syncTimer = null;
 let inflight = null, pending = false;
-let syncStatus = { state: 'off', detail: '' };
+let syncStatus = { state: 'off', detail: '', issue: null };
 let deferredRender = false;
 let syncFocusPassphrase = false;
 
@@ -44,9 +44,53 @@ async function getSyncCfg() {
   return syncCfg;
 }
 async function saveSyncCfg() { await DB.kvSet(SYNC_CFG_KEY, syncCfg, false); }
-function setStatus(state, detail = '') { syncStatus = { state, detail }; document.dispatchEvent(new CustomEvent('syncstatus')); }
+function setStatus(state, detail = '', issue = null) {
+  syncStatus = { state, detail, issue: issue || inferSyncIssue(state, detail) };
+  document.dispatchEvent(new CustomEvent('syncstatus'));
+}
 function getStatus() { return syncStatus; }
 function hasPassphrase() { return !!passphrase; }
+
+function inferSyncIssue(state, detail) {
+  if (state === 'off') return null;
+  if (state === 'ok' || state === 'idle' || state === 'syncing') return null;
+  if (state === 'needs-pass') return 'wrong-passphrase-or-missing';
+  if (state === 'needs-auth') return 'reconnect-required';
+  if (state === 'offline') return 'offline';
+  if (state === 'missing-app-key') return 'missing-app-key';
+  if (state === 'redirect-mismatch') return 'redirect-mismatch';
+  if (state === 'auth-failure') return 'auth-failure';
+  if (state === 'conflict') return 'dropbox-conflict';
+  if (state === 'rate-limit') return 'dropbox-rate-limit';
+  if (state === 'error') {
+    const d = (detail || '').toLowerCase();
+    if (d.includes('passphrase')) return 'wrong-passphrase';
+    if (d.includes('not a ledger')) return 'invalid-remote-file';
+    return 'sync-error';
+  }
+  return null;
+}
+
+async function getSyncDiagnostics() {
+  const cfg = await getSyncCfg();
+  const st = getStatus();
+  const m = await getMeta();
+  const appKeyConfigured = !!(cfg.appKey && String(cfg.appKey).trim());
+  const dropboxConnected = !!(cfg.enabled && cfg.refreshToken);
+  const sw = typeof getServiceWorkerDiagnostics === 'function'
+    ? await getServiceWorkerDiagnostics()
+    : null;
+  return {
+    appKeyConfigured,
+    dropboxConnected,
+    passphraseReady: hasPassphrase(),
+    lastSync: m.lastSync || 0,
+    remoteRev: m.remoteRev || null,
+    status: { state: st.state, detail: st.detail, issue: st.issue },
+    serviceWorker: sw,
+    redirectUri: typeof redirectUri === 'function' ? redirectUri() : null,
+  };
+}
 
 /* ---------- snapshot ---------- */
 function gcTombstones(m) {
@@ -242,7 +286,11 @@ async function pkce() {
 }
 async function startDropboxAuth() {
   const cfg = await getSyncCfg();
-  if (!cfg.appKey) { toast('Enter your Dropbox app key first'); return; }
+  if (!cfg.appKey) {
+    setStatus('missing-app-key', 'Add your Dropbox app key, then connect', 'missing-app-key');
+    toast('Enter your Dropbox app key first');
+    return;
+  }
   const { verifier, challenge } = await pkce();
   sessionStorage.setItem('ledger.pkce', verifier);
   const u = new URL('https://www.dropbox.com/oauth2/authorize');
@@ -260,7 +308,11 @@ async function finishDropboxAuth(code) {
   if (!verifier) throw new Error('Auth session expired, connect again');
   const body = new URLSearchParams({ code, grant_type: 'authorization_code', client_id: cfg.appKey, code_verifier: verifier, redirect_uri: redirectUri() });
   const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-  if (!r.ok) throw new Error('Dropbox auth failed: ' + (await r.text()).slice(0, 120));
+  if (!r.ok) {
+    const text = await r.text();
+    if (/redirect_uri|invalid_redirect/i.test(text)) throw new Error('REDIRECT_MISMATCH');
+    throw new Error('AUTH_FAILED:' + text.slice(0, 80));
+  }
   const j = await r.json();
   cfg.refreshToken = j.refresh_token; cfg.accessToken = j.access_token;
   cfg.expiresAt = Date.now() + (j.expires_in || 14400) * 1000; cfg.enabled = true;
@@ -334,14 +386,22 @@ async function doSync() {
         throw e;
       }
     }
-    setStatus('error', 'Too many conflicts, will retry');
+    setStatus('conflict', 'Edits collided on Dropbox — retrying on the next change or Sync now', 'dropbox-conflict');
   } catch (e) {
     console.error('sync failed', e);
-    if (e.message === 'WRONG_PASSPHRASE') setStatus('error', 'Passphrase does not match the data in Dropbox');
-    else if (e.message === 'NOT_LEDGER_FILE') setStatus('error', 'That Dropbox file is not a Ledger snapshot');
-    else if (e.message === 'NEEDS_RECONNECT') setStatus('needs-auth', 'Reconnect Dropbox');
-    else if (!navigator.onLine || e instanceof TypeError) setStatus('offline');
-    else setStatus('error', e.message.slice(0, 80));
+    if (e.message === 'WRONG_PASSPHRASE') {
+      setStatus('error', 'Passphrase does not match the encrypted file in Dropbox', 'wrong-passphrase');
+    } else if (e.message === 'NOT_LEDGER_FILE') {
+      setStatus('error', 'That Dropbox file is not a Ledger snapshot', 'invalid-remote-file');
+    } else if (e.message === 'NEEDS_RECONNECT') {
+      setStatus('needs-auth', 'Dropbox session expired — connect again', 'reconnect-required');
+    } else if (e.code === 'RATE_LIMIT') {
+      setStatus('rate-limit', 'Dropbox is busy — wait a moment, then Sync now', 'dropbox-rate-limit');
+    } else if (e.code === 'CONFLICT') {
+      setStatus('conflict', 'Another device wrote at the same time — Sync now to merge', 'dropbox-conflict');
+    } else if (!navigator.onLine || e instanceof TypeError) {
+      setStatus('offline', 'No network — changes stay on this device until you are back online', 'offline');
+    } else setStatus('error', e.message.slice(0, 80), 'sync-error');
   }
 }
 /* Mutex with a re-run flag: a mutation landing mid-sync must not be dropped. */
@@ -386,7 +446,19 @@ async function initSync() {
       history.replaceState({}, '', redirectUri());
       toast('Dropbox connected. Enter the shared passphrase to start syncing.');
     }
-    catch (e) { toast(e.message); history.replaceState({}, '', redirectUri()); }
+    catch (e) {
+      if (e.message === 'REDIRECT_MISMATCH') {
+        setStatus('redirect-mismatch', 'Redirect URI in Dropbox must match this page exactly', 'redirect-mismatch');
+        toast('Redirect URI mismatch — check Dropbox app settings');
+      } else if (e.message.startsWith('AUTH_FAILED')) {
+        setStatus('auth-failure', 'Dropbox rejected the sign-in — try Connect again', 'auth-failure');
+        toast('Dropbox sign-in failed');
+      } else {
+        setStatus('error', e.message.slice(0, 80), 'sync-error');
+        toast(e.message);
+      }
+      history.replaceState({}, '', redirectUri());
+    }
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {

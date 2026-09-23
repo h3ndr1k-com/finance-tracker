@@ -311,6 +311,16 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 }
 .sync-recovery strong { display: block; margin-bottom: 3px; font-size: 14px; }
 .sync-recovery p { margin: 0; max-width: 58ch; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.sync-diagnostics {
+  margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: 11px;
+  background: color-mix(in srgb, var(--card) 92%, var(--bg));
+}
+.sync-diagnostics h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; letter-spacing: .02em; }
+.sync-diagnostics dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 38%) 1fr; gap: 6px 10px; font-size: 13px; }
+.sync-diagnostics dt { color: var(--muted); margin: 0; }
+.sync-diagnostics dd { margin: 0; color: var(--ink); line-height: 1.4; }
+.sync-diagnostics .sync-next { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 13px; }
+.sync-diagnostics .sync-next strong { color: var(--ink); }
 .reminder-banner {
   margin-top: 14px; padding: 12px 14px; border-radius: 14px;
   background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
@@ -2710,8 +2720,58 @@ function showSettings() {
 /* ---------- sync settings panel ---------- */
 const SYNC_LABEL = {
   off: 'Not connected', idle: 'Connected', syncing: 'Syncing…', ok: 'Synced',
-  offline: 'Offline, will retry', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect Dropbox',
+  offline: 'Offline', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect Dropbox',
+  'missing-app-key': 'App key required', 'redirect-mismatch': 'Redirect URI mismatch', 'auth-failure': 'Sign-in failed',
+  conflict: 'Dropbox conflict', 'rate-limit': 'Dropbox rate limit',
 };
+const SYNC_NEXT_ACTION = {
+  'missing-app-key': 'Paste the App key from dropbox.com/developers, add the redirect URI shown below in Dropbox → OAuth 2, then Connect.',
+  'redirect-mismatch': 'In Dropbox Developer Console → your app → Settings → OAuth 2 → Redirect URIs, add the exact URL shown under Sync (including trailing slash). Save in Dropbox, reload this page, then Connect again.',
+  'auth-failure': 'Tap Connect Dropbox again. If it keeps failing, disconnect in Dropbox account settings for this app and reconnect.',
+  'reconnect-required': 'Tap Disconnect, then Connect Dropbox and approve access again. Your encrypted file in Dropbox is unchanged.',
+  offline: 'Reconnect to the internet, then open Ledger or tap Sync now. Nothing is lost on this device.',
+  'wrong-passphrase-or-missing': 'Enter the same passphrase used on your other device, then tap Unlock & sync.',
+  'wrong-passphrase': 'Use the passphrase from your other device. If you cannot recover it, restore from a JSON export instead of guessing.',
+  'dropbox-conflict': 'Wait a few seconds, then tap Sync now so both devices merge the latest edits.',
+  'dropbox-rate-limit': 'Dropbox asked Ledger to slow down. Wait about a minute, then tap Sync now.',
+  'invalid-remote-file': 'The file at /Apps/Ledger/ledger.bin is not from Ledger. Remove it in Dropbox or use a fresh app folder, then sync again.',
+  'sync-error': 'Open Sync diagnostics below for details, fix the issue, then tap Sync now.',
+};
+async function getServiceWorkerDiagnostics() {
+  if (!('serviceWorker' in navigator)) {
+    return { supported: false, controller: false, cacheVersion: null, update: 'unsupported' };
+  }
+  let cacheVersion = null;
+  try {
+    const r = await fetch('./sw.js', { cache: 'no-store' });
+    const text = await r.text();
+    const m = text.match(/const CACHE = '([^']+)'/);
+    cacheVersion = m ? m[1] : 'unknown';
+  } catch {
+    cacheVersion = 'unavailable';
+  }
+  const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+  const controller = !!navigator.serviceWorker.controller;
+  let update = 'none';
+  if (reg?.waiting) update = 'waiting';
+  else if (reg?.installing) update = 'installing';
+  else if (reg?.active && !controller) update = 'pending-control';
+  return {
+    supported: true,
+    controller,
+    cacheVersion,
+    activeState: reg?.active?.state || (controller ? 'activated' : 'none'),
+    update,
+    scope: reg?.scope || null,
+  };
+}
+function syncIssueAction(issue, diag) {
+  if (issue && SYNC_NEXT_ACTION[issue]) return SYNC_NEXT_ACTION[issue];
+  if (!diag.appKeyConfigured) return SYNC_NEXT_ACTION['missing-app-key'];
+  if (!diag.dropboxConnected) return 'Connect Dropbox and approve access, then set the shared passphrase on both devices.';
+  if (diag.dropboxConnected && !diag.passphraseReady) return SYNC_NEXT_ACTION['wrong-passphrase-or-missing'];
+  return 'Sync is ready. Edits upload automatically; use Sync now after reconnecting or if another device just changed data.';
+}
 function relTime(ms) {
   if (!ms) return 'never';
   const s = Math.round((Date.now() - ms) / 1000);
@@ -2725,13 +2785,30 @@ async function renderSyncPanel() {
   if (typeof getSyncCfg !== 'function') { el.textContent = 'Sync module not loaded.'; return; }
   const cfg = await getSyncCfg();
   const st = getStatus(); const m = await getMeta();
+  const diag = typeof getSyncDiagnostics === 'function' ? await getSyncDiagnostics() : null;
   const connected = cfg.enabled && cfg.refreshToken;
   const needsPassphrase = connected && !hasPassphrase();
+  const issue = st.issue || (diag && !diag.appKeyConfigured ? 'missing-app-key' : null);
+  const nextAction = syncIssueAction(issue, diag || { appKeyConfigured: !!cfg.appKey, dropboxConnected: connected, passphraseReady: hasPassphrase() });
+  const sw = diag?.serviceWorker;
+  const swLine = !sw ? 'Unavailable' : !sw.supported ? 'Not supported in this browser'
+    : `${sw.controller ? 'Controlling this tab' : 'Not controlling yet'} · cache ${esc(sw.cacheVersion || '?')}${sw.update !== 'none' ? ` · update ${esc(sw.update)}` : ''}`;
   el.innerHTML = `
     <div class="formrow" style="margin-top:10px"><label>Status</label>
-      <span class="pill ${st.state === 'error' || st.state === 'needs-auth' ? 'grey' : ''}">${esc(SYNC_LABEL[st.state] || st.state)}</span>
+      <span class="pill ${st.state === 'error' || st.state === 'needs-auth' || st.state === 'redirect-mismatch' || st.state === 'auth-failure' ? 'grey' : ''}">${esc(SYNC_LABEL[st.state] || st.state)}</span>
       ${connected ? `<span class="sub num">last sync ${esc(relTime(m.lastSync))}</span>` : ''}
       ${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</div>
+    <section class="sync-diagnostics" aria-labelledby="syncDiagHeading">
+      <h3 id="syncDiagHeading">Sync diagnostics</h3>
+      <dl>
+        <dt>Service worker</dt><dd>${swLine}</dd>
+        <dt>App key</dt><dd>${diag?.appKeyConfigured ? 'Configured (hidden)' : 'Not set — paste key below'}</dd>
+        <dt>Dropbox</dt><dd>${connected ? 'Connected to your app folder' : 'Not connected'}</dd>
+        <dt>Passphrase</dt><dd>${hasPassphrase() ? 'Ready on this device' : 'Not entered on this device'}</dd>
+        <dt>Last successful sync</dt><dd class="num">${esc(m.lastSync ? new Date(m.lastSync).toLocaleString() : 'Never')}</dd>
+      </dl>
+      <div class="sync-next"><strong>Next step:</strong> ${esc(nextAction)}</div>
+    </section>
     ${!connected ? `
       <div class="formrow"><label>Dropbox app key</label><input id="syAppKey" value="${esc(cfg.appKey || '')}" placeholder="from dropbox.com/developers"></div>
       <div class="sub">In Dropbox Developer Console → Settings → OAuth 2 → Redirect URIs, add this exact address: <code>${esc(typeof redirectUri === 'function' ? redirectUri() : location.href)}</code>. Save there, reload this page, then connect.</div>
