@@ -65,6 +65,26 @@ function fileStore(dir) {
   };
 }
 
+function isMissingBlobError(e) {
+  if (!e) return false;
+  if (e.status === 404 || e.statusCode === 404 || e.code === 'ENOENT') return true;
+  const name = String(e.name || '');
+  if (name === 'BlobNotFoundError' || /notfound/i.test(name)) return true;
+  const msg = String(e.message || e);
+  // Vercel Blob throws BlobNotFoundError: "The requested blob does not exist"
+  // — that does not match /not found/i, so first Connect used to 500.
+  return /not found|does not exist|no such (blob|file|key|object)/i.test(msg);
+}
+
+async function readSnapshot(store) {
+  try {
+    return await store.read();
+  } catch (e) {
+    if (isMissingBlobError(e)) return null;
+    throw e;
+  }
+}
+
 function blobStore(token) {
   return {
     async read() {
@@ -75,8 +95,7 @@ function blobStore(token) {
         if (!r.ok) return null;
         return Buffer.from(await r.arrayBuffer());
       } catch (e) {
-        const msg = String(e && e.message || e);
-        if (e && (e.status === 404 || e.statusCode === 404 || /not found/i.test(msg))) return null;
+        if (isMissingBlobError(e)) return null;
         throw e;
       }
     },
@@ -149,7 +168,7 @@ async function handleHouseholdSync(req, res, opts = {}) {
   }
 
   if (method === 'GET' || method === 'HEAD') {
-    const current = await store.read();
+    const current = await readSnapshot(store);
     if (!current) {
       send(res, 404, method === 'HEAD' ? null : { error: 'NOT_FOUND' });
       return;
@@ -171,7 +190,7 @@ async function handleHouseholdSync(req, res, opts = {}) {
       send(res, 400, { error: 'NOT_LEDGER_FILE' });
       return;
     }
-    const current = await store.read();
+    const current = await readSnapshot(store);
     const ifMatch = String(req.headers['if-match'] || '').replace(/"/g, '').trim();
     if (current) {
       const currentRev = revOf(current);
@@ -195,5 +214,6 @@ module.exports = {
   fileStore,
   isLed1,
   revOf,
+  isMissingBlobError,
   BLOB_PATH,
 };
