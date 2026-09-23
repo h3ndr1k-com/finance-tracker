@@ -13,4 +13,12 @@
   ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (type) {
     document.addEventListener(type, block, { passive: false });
   });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || t.id !== 'sClose') return;
+    setTimeout(function () {
+      if (typeof flushDeferredRender === 'function') flushDeferredRender();
+      else if (typeof renderAll === 'function') renderAll();
+    }, 0);
+  });
 })();
