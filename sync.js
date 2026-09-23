@@ -1,12 +1,14 @@
 'use strict';
-/* Ledger sync: encrypted snapshot <-> the user's own Dropbox app folder.
-   No backend. Dropbox only ever stores ciphertext it cannot read.
+/* Ledger sync: encrypted LED1 snapshot <-> first-party /api/sync.
+   The host stores ciphertext only. No OAuth — household bearer token.
+   Dropbox remains as a dormant rollback if a device still has a refresh token.
    Depends on index.html for: S, DB, SYNC_SCHEMA, schemaKeys, schemaEntry,
    getMeta, saveMeta, TOMB_TTL_MS, renderAll, toast. */
 
 const SYNC_CFG_KEY = 'syncCfg';   // never synced: holds tokens + salt
 const SYNC_PASS_KEY = 'syncPass';
 const SYNC_BOOTSTRAP_URL = './sync-config.json';
+const HOUSEHOLD_SYNC_URL = './api/sync';
 const REMOTE_PATH = '/ledger.bin';
 const PBKDF2_ITER = 600000;
 
@@ -35,7 +37,8 @@ async function getSyncBootstrap() {
 
 async function getSyncCfg() {
   if (syncCfg) return syncCfg;
-  syncCfg = await DB.kvGet(SYNC_CFG_KEY, { enabled: false, appKey: '', refreshToken: null, accessToken: null, expiresAt: 0, saltB64: null, rememberPass: false });
+  syncCfg = await DB.kvGet(SYNC_CFG_KEY, { enabled: false, provider: null, householdToken: '', appKey: '', refreshToken: null, accessToken: null, expiresAt: 0, saltB64: null, rememberPass: false });
+  if (!syncCfg.householdToken) syncCfg.householdToken = '';
   const bootstrap = await getSyncBootstrap();
   if (bootstrap.appKey && !syncCfg.appKey) {
     syncCfg.appKey = String(bootstrap.appKey).trim();
@@ -43,6 +46,9 @@ async function getSyncCfg() {
   }
   return syncCfg;
 }
+function isHouseholdLinked(cfg) { return !!(cfg && cfg.enabled && cfg.householdToken); }
+function isDropboxLinked(cfg) { return !!(cfg && cfg.enabled && cfg.refreshToken && !cfg.householdToken); }
+function isSyncLinked(cfg) { return isHouseholdLinked(cfg) || isDropboxLinked(cfg); }
 async function saveSyncCfg() { await DB.kvSet(SYNC_CFG_KEY, syncCfg, false); }
 function setStatus(state, detail = '', issue = null) {
   const inferred = issue || (typeof LedgerSyncIssues !== 'undefined'
@@ -58,14 +64,19 @@ async function getSyncDiagnostics() {
   const cfg = await getSyncCfg();
   const st = getStatus();
   const m = await getMeta();
+  const householdConfigured = !!(cfg.householdToken && String(cfg.householdToken).trim());
   const appKeyConfigured = !!(cfg.appKey && String(cfg.appKey).trim());
-  const dropboxConnected = !!(cfg.enabled && cfg.refreshToken);
+  const householdConnected = isHouseholdLinked(cfg);
+  const dropboxConnected = isDropboxLinked(cfg);
   const sw = typeof getServiceWorkerDiagnostics === 'function'
     ? await getServiceWorkerDiagnostics()
     : null;
   return {
+    householdConfigured,
+    householdConnected,
     appKeyConfigured,
     dropboxConnected,
+    bus: householdConnected ? 'household' : dropboxConnected ? 'dropbox' : 'none',
     passphraseReady: hasPassphrase(),
     lastSync: m.lastSync || 0,
     remoteRev: m.remoteRev || null,
@@ -260,7 +271,61 @@ async function decryptSnapshot(buf) {
   return JSON.parse(new TextDecoder().decode(pt));
 }
 
-/* ---------- Dropbox (PKCE, app-folder scoped) ---------- */
+/* ---------- Household (same-origin /api/sync, no OAuth) ---------- */
+function householdHeaders(token, extra) {
+  return { Authorization: 'Bearer ' + token, ...(extra || {}) };
+}
+function householdRev(r) {
+  return (r.headers.get('x-ledger-rev') || r.headers.get('etag') || '').replace(/"/g, '').trim() || null;
+}
+async function connectHousehold(token) {
+  const r = await fetch(HOUSEHOLD_SYNC_URL, {
+    method: 'GET',
+    headers: householdHeaders(token, { Accept: 'application/octet-stream' }),
+    cache: 'no-store',
+  });
+  if (r.status === 401 || r.status === 403) throw new Error('AUTH_FAILED');
+  if (r.status === 503) throw new Error('SYNC_SERVER_UNAVAILABLE');
+  if (r.status !== 200 && r.status !== 404 && r.status !== 204) throw new Error('AUTH_FAILED');
+  const cfg = await getSyncCfg();
+  cfg.householdToken = token;
+  cfg.provider = 'household';
+  cfg.enabled = true;
+  cfg.refreshToken = null;
+  cfg.accessToken = null;
+  cfg.expiresAt = 0;
+  await saveSyncCfg();
+}
+async function downloadHousehold() {
+  const cfg = await getSyncCfg();
+  const r = await fetch(HOUSEHOLD_SYNC_URL, {
+    method: 'GET',
+    headers: householdHeaders(cfg.householdToken, { Accept: 'application/octet-stream' }),
+    cache: 'no-store',
+  });
+  if (r.status === 404 || r.status === 204) return null;
+  if (r.status === 401 || r.status === 403) throw new Error('NEEDS_RECONNECT');
+  if (r.status === 503) throw new Error('SYNC_SERVER_UNAVAILABLE');
+  if (r.status === 429) { const e = new Error('RATE_LIMIT'); e.code = 'RATE_LIMIT'; e.retryAfter = +(r.headers.get('Retry-After') || 5); throw e; }
+  if (!r.ok) throw new Error('Household download failed: ' + r.status);
+  const snap = await decryptSnapshot(await r.arrayBuffer());
+  return { snap, rev: householdRev(r) };
+}
+async function uploadHousehold(snap, rev) {
+  const cfg = await getSyncCfg();
+  const bytes = await encryptSnapshot(snap);
+  const headers = householdHeaders(cfg.householdToken, { 'Content-Type': 'application/octet-stream' });
+  if (rev) headers['If-Match'] = rev;
+  const r = await fetch(HOUSEHOLD_SYNC_URL, { method: 'PUT', headers, body: bytes, cache: 'no-store' });
+  if (r.status === 409 || r.status === 412) { const e = new Error('CONFLICT'); e.code = 'CONFLICT'; throw e; }
+  if (r.status === 401 || r.status === 403) throw new Error('NEEDS_RECONNECT');
+  if (r.status === 503) throw new Error('SYNC_SERVER_UNAVAILABLE');
+  if (r.status === 429) { const e = new Error('RATE_LIMIT'); e.code = 'RATE_LIMIT'; e.retryAfter = +(r.headers.get('Retry-After') || 5); throw e; }
+  if (!r.ok) throw new Error('Household upload failed: ' + r.status + ' ' + (await r.text()).slice(0, 120));
+  return householdRev(r) || (await r.json().catch(() => ({}))).rev;
+}
+
+/* ---------- Dropbox (PKCE rollback; not used by the Settings connect form) ---------- */
 function redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
 async function pkce() {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(64)));
@@ -328,7 +393,7 @@ async function accessToken() {
   await saveSyncCfg();
   return cfg.accessToken;
 }
-async function downloadRemote() {
+async function downloadDropbox() {
   const tok = await accessToken();
   const r = await fetch('https://content.dropboxapi.com/2/files/download', {
     method: 'POST',
@@ -346,7 +411,7 @@ async function downloadRemote() {
   const snap = await decryptSnapshot(await r.arrayBuffer());   // throws -> fatal, never falls through to create
   return { snap, rev: meta.rev };
 }
-async function uploadRemote(snap, rev) {
+async function uploadDropbox(snap, rev) {
   const tok = await accessToken();
   const bytes = await encryptSnapshot(snap);
   const mode = rev ? { '.tag': 'update', update: rev } : 'add';   // never "overwrite": the rev check IS the safety
@@ -364,11 +429,21 @@ async function uploadRemote(snap, rev) {
   if (!r.ok) throw new Error('Dropbox upload failed: ' + r.status + ' ' + (await r.text()).slice(0, 120));
   return (await r.json()).rev;
 }
+async function downloadRemote() {
+  const cfg = await getSyncCfg();
+  if (isHouseholdLinked(cfg)) return downloadHousehold();
+  return downloadDropbox();
+}
+async function uploadRemote(snap, rev) {
+  const cfg = await getSyncCfg();
+  if (isHouseholdLinked(cfg)) return uploadHousehold(snap, rev);
+  return uploadDropbox(snap, rev);
+}
 
 /* ---------- orchestration ---------- */
 async function doSync() {
   const cfg = await getSyncCfg();
-  if (!cfg.enabled || !cfg.refreshToken) { setStatus('off'); return; }
+  if (!isSyncLinked(cfg)) { setStatus('off'); return; }
   if (!passphrase) { setStatus('needs-pass', 'Passphrase needed'); return; }
   if (!navigator.onLine) { setStatus('offline'); return; }
   setStatus('syncing');
@@ -389,16 +464,16 @@ async function doSync() {
         throw e;
       }
     }
-    setStatus('conflict', 'Edits collided on Dropbox — retrying on the next change or Sync now', 'dropbox-conflict');
+    setStatus('conflict', 'Edits collided — retrying on the next change or Sync now', 'dropbox-conflict');
   } catch (e) {
     console.error('sync failed', e);
     const classified = typeof LedgerSyncIssues !== 'undefined'
       ? LedgerSyncIssues.classifySyncFailure(e, typeof navigator === 'undefined' ? true : navigator.onLine)
       : null;
     if (classified) setStatus(classified.state, classified.detail, classified.issue);
-    else if (e.message === 'WRONG_PASSPHRASE') setStatus('error', 'Passphrase does not match the data in Dropbox', 'wrong-passphrase');
-    else if (e.message === 'NOT_LEDGER_FILE') setStatus('error', 'That Dropbox file is not a Ledger snapshot', 'invalid-remote-file');
-    else if (e.message === 'NEEDS_RECONNECT') setStatus('needs-auth', 'Reconnect Dropbox', 'reconnect-required');
+    else if (e.message === 'WRONG_PASSPHRASE') setStatus('error', 'Passphrase does not match the encrypted household snapshot', 'wrong-passphrase');
+    else if (e.message === 'NOT_LEDGER_FILE') setStatus('error', 'That remote file is not a Ledger snapshot', 'invalid-remote-file');
+    else if (e.message === 'NEEDS_RECONNECT') setStatus('needs-auth', 'Reconnect household sync', 'reconnect-required');
     else if (!navigator.onLine || e instanceof TypeError) setStatus('offline', 'No network — changes stay on this device until you are back online', 'offline');
     else setStatus('error', e.message.slice(0, 80), 'sync-error');
   }
@@ -425,7 +500,7 @@ async function setPassphrase(p, remember) {
   else await DB.kvSet(SYNC_PASS_KEY, null, false);
 }
 async function disconnectSync() {
-  syncCfg = { enabled: false, appKey: syncCfg?.appKey || '', refreshToken: null, accessToken: null, expiresAt: 0, saltB64: null, rememberPass: false };
+  syncCfg = { enabled: false, provider: null, householdToken: '', appKey: syncCfg?.appKey || '', refreshToken: null, accessToken: null, expiresAt: 0, saltB64: syncCfg?.saltB64 || null, rememberPass: false };
   await saveSyncCfg();
   await DB.kvSet(SYNC_PASS_KEY, null, false);
   passphrase = null; _keyCache = null;
@@ -466,15 +541,15 @@ async function initSync() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       clearTimeout(syncTimer);
-      if (syncCfg?.enabled && syncCfg.refreshToken && passphrase) syncNow();
+      if (isSyncLinked(syncCfg) && passphrase) syncNow();
     } else scheduleSync(500);
   });
   window.addEventListener('online', () => scheduleSync(500));
   window.addEventListener('pagehide', () => {
     clearTimeout(syncTimer);
-    if (syncCfg?.enabled && syncCfg.refreshToken && passphrase) syncNow();
+    if (isSyncLinked(syncCfg) && passphrase) syncNow();
   });
-  if (syncCfg.enabled && syncCfg.refreshToken) {
+  if (isSyncLinked(syncCfg)) {
     setStatus(passphrase ? 'idle' : 'needs-pass', passphrase ? '' : 'Enter the shared passphrase to sync');
     if (passphrase) syncNow();
     else if (connectedThisVisit && typeof showSettings === 'function') {
@@ -542,22 +617,24 @@ async function renderSyncPanel() {
   const st = getStatus();
   const m = await getMeta();
   const diag = await getSyncDiagnostics();
-  const connected = cfg.enabled && cfg.refreshToken;
+  const connected = isSyncLinked(cfg);
+  const household = isHouseholdLinked(cfg);
   const needsPassphrase = connected && !hasPassphrase();
   const labels = (typeof LedgerSyncIssues !== 'undefined' && LedgerSyncIssues.SYNC_LABEL) || {
     off: 'Not connected', idle: 'Connected', syncing: 'Syncing…', ok: 'Synced',
-    offline: 'Offline', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect Dropbox',
-    'missing-app-key': 'App key required', 'redirect-mismatch': 'Redirect URI mismatch',
-    'auth-failure': 'Sign-in failed', conflict: 'Dropbox conflict', 'rate-limit': 'Dropbox rate limit',
+    offline: 'Offline', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect',
+    'missing-app-key': 'Household token required', 'redirect-mismatch': 'Redirect URI mismatch',
+    'auth-failure': 'Sign-in failed', conflict: 'Sync conflict', 'rate-limit': 'Sync rate limit',
   };
-  const issue = st.issue || (!diag.appKeyConfigured ? 'missing-app-key' : null);
+  const issue = st.issue || (!diag.householdConfigured && !diag.dropboxConnected ? 'missing-household-token' : null);
   const nextAction = typeof LedgerSyncIssues !== 'undefined'
     ? LedgerSyncIssues.syncIssueAction(issue, diag)
-    : (st.detail || 'Connect Dropbox, then set the shared passphrase on both devices.');
+    : (st.detail || 'Paste the household token, connect, then set the shared passphrase on each device.');
   const sw = diag.serviceWorker;
   const swLine = !sw ? 'Unavailable' : !sw.supported ? 'Not supported in this browser'
     : `${sw.controller ? 'Controlling this tab' : 'Not controlling yet'} · cache ${esc(sw.cacheVersion || '?')}${sw.update !== 'none' ? ` · update ${esc(sw.update)}` : ''}`;
-  const problemStates = ['error', 'needs-auth', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'conflict', 'rate-limit'];
+  const problemStates = ['error', 'needs-auth', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'missing-household-token', 'conflict', 'rate-limit'];
+  const busLabel = household ? 'Household API (this site)' : connected ? 'Dropbox (legacy)' : 'Not connected';
   el.innerHTML = `
     <div class="formrow" style="margin-top:10px"><label>Status</label>
       <span class="pill ${problemStates.includes(st.state) ? 'grey' : ''}">${esc(labels[st.state] || st.state)}</span>
@@ -567,35 +644,49 @@ async function renderSyncPanel() {
       <h3 id="syncDiagHeading">Sync diagnostics</h3>
       <dl>
         <dt>Service worker</dt><dd>${swLine}</dd>
-        <dt>App key</dt><dd>${diag.appKeyConfigured ? 'Configured (hidden)' : 'Not set — paste key below'}</dd>
-        <dt>Dropbox</dt><dd>${connected ? 'Connected to your app folder' : 'Not connected'}</dd>
+        <dt>Household token</dt><dd>${diag.householdConfigured ? 'Configured (hidden)' : 'Not set — paste token below'}</dd>
+        <dt>Sync bus</dt><dd>${esc(busLabel)}</dd>
         <dt>Passphrase</dt><dd>${hasPassphrase() ? 'Ready on this device' : 'Not entered on this device'}</dd>
         <dt>Last successful sync</dt><dd class="num">${esc(m.lastSync ? new Date(m.lastSync).toLocaleString() : 'Never')}</dd>
       </dl>
       <div class="sync-next"><strong>Next step:</strong> ${esc(nextAction)}</div>
     </section>
     ${!connected ? `
-      <div class="formrow"><label>Dropbox app key</label><input id="syAppKey" value="" autocomplete="off" placeholder="${cfg.appKey ? 'App key saved (hidden)' : 'from dropbox.com/developers'}"></div>
-      <div class="sub">In Dropbox Developer Console → Settings → OAuth 2 → Redirect URIs, add this exact address: <code>${esc(typeof redirectUri === 'function' ? redirectUri() : location.href)}</code>. Save there, reload this page, then connect.</div>
-      <div class="sub">If you want this key to survive new previews or rebuilds, drop a <code>sync-config.json</code> beside the app with <code>{"appKey":"..."}</code>.</div>
-      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect Dropbox</button></div>`
+      <div class="formrow"><label>Household token</label><input id="syHouseholdToken" type="password" value="" autocomplete="off" placeholder="shared with every device"></div>
+      <div class="sub">Same token on Hendrik’s phone, desktop, and the other phone. It stays on this device. There is no Dropbox or Google sign-in — Connect never leaves this app.</div>
+      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect household</button></div>`
     : `
-      ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>Dropbox is connected — one more step.</strong><p>Enter the same passphrase used on the other device. Dropbox never stores it, so reconnecting alone cannot start syncing.</p></div>` : ''}
-      <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other device'}">
+      ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>This device is linked — one more step.</strong><p>Enter the same encryption passphrase used on the other devices. The server only stores ciphertext, so the token alone cannot start syncing.</p></div>` : ''}
+      <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other devices'}">
         <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember on this device</label>
         <button class="ghost sm" id="sySetPass">${needsPassphrase ? 'Unlock & sync' : 'Update'}</button></div>
-      <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the Dropbox copy is unrecoverable.</div>
+      <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the household copy is unrecoverable — keep a JSON export.</div>
       <div class="formrow" style="justify-content:flex-end; margin-top:10px">
         <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
         <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
 
   if (!connected) {
     $('#syConnect').onclick = async () => {
-      const c = await getSyncCfg();
-      const typed = $('#syAppKey').value.trim();
-      if (typed) c.appKey = typed;
-      await saveSyncCfg();
-      startDropboxAuth();
+      const typed = $('#syHouseholdToken').value.trim();
+      if (!typed) { toast('Paste the household token first'); return; }
+      try {
+        await connectHousehold(typed);
+        toast('Household linked. Enter the shared passphrase to start syncing.');
+        syncFocusPassphrase = true;
+        setStatus('needs-pass', 'Enter the shared passphrase to sync');
+        renderSyncPanel();
+      } catch (e) {
+        const classified = typeof LedgerSyncIssues !== 'undefined'
+          ? LedgerSyncIssues.classifySyncFailure(e, navigator.onLine)
+          : null;
+        if (classified && classified.issue !== 'sync-error') {
+          setStatus(classified.state, classified.detail, classified.issue);
+          toast(classified.detail);
+        } else {
+          setStatus('error', e.message.slice(0, 80), 'sync-error');
+          toast(e.message);
+        }
+      }
     };
   } else {
     $('#sySetPass').onclick = async () => {
@@ -606,7 +697,7 @@ async function renderSyncPanel() {
     };
     $('#sySync').onclick = () => syncNow();
     $('#syDisconnect').onclick = async () => {
-      if (!confirm('Disconnect this device from Dropbox? Local data stays; the other device is untouched.')) return;
+      if (!confirm('Disconnect this device from household sync? Local data stays; the other devices and the household copy are untouched.')) return;
       await disconnectSync(); renderSyncPanel();
     };
     if (needsPassphrase && syncFocusPassphrase) {
