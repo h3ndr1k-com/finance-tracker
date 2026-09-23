@@ -483,3 +483,135 @@ async function initSync() {
     }
   } else setStatus('off');
 }
+
+/* ---------- Settings diagnostics UI ----------
+   Defined here so the panel ships even when index.html cannot be rewritten
+   (large static file). This file loads after the app script and replaces
+   the Settings sync renderer. Secrets are never interpolated into the DOM. */
+function ensureSyncDiagStyles() {
+  if (typeof document === 'undefined' || document.getElementById('sync-diag-css')) return;
+  const style = document.createElement('style');
+  style.id = 'sync-diag-css';
+  style.textContent = [
+    '.sync-diagnostics { margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: 11px; background: color-mix(in srgb, var(--card) 92%, var(--bg)); }',
+    '.sync-diagnostics h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; letter-spacing: .02em; }',
+    '.sync-diagnostics dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 38%) 1fr; gap: 6px 10px; font-size: 13px; }',
+    '.sync-diagnostics dt { color: var(--muted); margin: 0; }',
+    '.sync-diagnostics dd { margin: 0; color: var(--ink); line-height: 1.4; }',
+    '.sync-diagnostics .sync-next { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 13px; }',
+    '.sync-diagnostics .sync-next strong { color: var(--ink); }',
+  ].join('\n');
+  document.head.appendChild(style);
+}
+
+async function getServiceWorkerDiagnostics() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return { supported: false, controller: false, cacheVersion: null, update: 'unsupported' };
+  }
+  let cacheVersion = null;
+  try {
+    const r = await fetch('./sw.js', { cache: 'no-store' });
+    const text = await r.text();
+    const m = text.match(/const CACHE = '([^']+)'/);
+    cacheVersion = m ? m[1] : 'unknown';
+  } catch {
+    cacheVersion = 'unavailable';
+  }
+  const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+  const controller = !!navigator.serviceWorker.controller;
+  let update = 'none';
+  if (reg?.waiting) update = 'waiting';
+  else if (reg?.installing) update = 'installing';
+  else if (reg?.active && !controller) update = 'pending-control';
+  return {
+    supported: true,
+    controller,
+    cacheVersion,
+    activeState: reg?.active?.state || (controller ? 'activated' : 'none'),
+    update,
+    scope: reg?.scope || null,
+  };
+}
+
+async function renderSyncPanel() {
+  const el = typeof $ === 'function' ? $('#syncPanel') : null;
+  if (!el) return;
+  ensureSyncDiagStyles();
+  if (typeof getSyncCfg !== 'function') { el.textContent = 'Sync module not loaded.'; return; }
+  const cfg = await getSyncCfg();
+  const st = getStatus();
+  const m = await getMeta();
+  const diag = await getSyncDiagnostics();
+  const connected = cfg.enabled && cfg.refreshToken;
+  const needsPassphrase = connected && !hasPassphrase();
+  const labels = (typeof LedgerSyncIssues !== 'undefined' && LedgerSyncIssues.SYNC_LABEL) || {
+    off: 'Not connected', idle: 'Connected', syncing: 'Syncing…', ok: 'Synced',
+    offline: 'Offline', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect Dropbox',
+    'missing-app-key': 'App key required', 'redirect-mismatch': 'Redirect URI mismatch',
+    'auth-failure': 'Sign-in failed', conflict: 'Dropbox conflict', 'rate-limit': 'Dropbox rate limit',
+  };
+  const issue = st.issue || (!diag.appKeyConfigured ? 'missing-app-key' : null);
+  const nextAction = typeof LedgerSyncIssues !== 'undefined'
+    ? LedgerSyncIssues.syncIssueAction(issue, diag)
+    : (st.detail || 'Connect Dropbox, then set the shared passphrase on both devices.');
+  const sw = diag.serviceWorker;
+  const swLine = !sw ? 'Unavailable' : !sw.supported ? 'Not supported in this browser'
+    : `${sw.controller ? 'Controlling this tab' : 'Not controlling yet'} · cache ${esc(sw.cacheVersion || '?')}${sw.update !== 'none' ? ` · update ${esc(sw.update)}` : ''}`;
+  const problemStates = ['error', 'needs-auth', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'conflict', 'rate-limit'];
+  el.innerHTML = `
+    <div class="formrow" style="margin-top:10px"><label>Status</label>
+      <span class="pill ${problemStates.includes(st.state) ? 'grey' : ''}">${esc(labels[st.state] || st.state)}</span>
+      ${connected ? `<span class="sub num">last sync ${esc(relTime(m.lastSync))}</span>` : ''}
+      ${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</div>
+    <section class="sync-diagnostics" aria-labelledby="syncDiagHeading">
+      <h3 id="syncDiagHeading">Sync diagnostics</h3>
+      <dl>
+        <dt>Service worker</dt><dd>${swLine}</dd>
+        <dt>App key</dt><dd>${diag.appKeyConfigured ? 'Configured (hidden)' : 'Not set — paste key below'}</dd>
+        <dt>Dropbox</dt><dd>${connected ? 'Connected to your app folder' : 'Not connected'}</dd>
+        <dt>Passphrase</dt><dd>${hasPassphrase() ? 'Ready on this device' : 'Not entered on this device'}</dd>
+        <dt>Last successful sync</dt><dd class="num">${esc(m.lastSync ? new Date(m.lastSync).toLocaleString() : 'Never')}</dd>
+      </dl>
+      <div class="sync-next"><strong>Next step:</strong> ${esc(nextAction)}</div>
+    </section>
+    ${!connected ? `
+      <div class="formrow"><label>Dropbox app key</label><input id="syAppKey" value="" autocomplete="off" placeholder="${cfg.appKey ? 'App key saved (hidden)' : 'from dropbox.com/developers'}"></div>
+      <div class="sub">In Dropbox Developer Console → Settings → OAuth 2 → Redirect URIs, add this exact address: <code>${esc(typeof redirectUri === 'function' ? redirectUri() : location.href)}</code>. Save there, reload this page, then connect.</div>
+      <div class="sub">If you want this key to survive new previews or rebuilds, drop a <code>sync-config.json</code> beside the app with <code>{"appKey":"..."}</code>.</div>
+      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect Dropbox</button></div>`
+    : `
+      ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>Dropbox is connected — one more step.</strong><p>Enter the same passphrase used on the other device. Dropbox never stores it, so reconnecting alone cannot start syncing.</p></div>` : ''}
+      <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other device'}">
+        <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember on this device</label>
+        <button class="ghost sm" id="sySetPass">${needsPassphrase ? 'Unlock & sync' : 'Update'}</button></div>
+      <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the Dropbox copy is unrecoverable.</div>
+      <div class="formrow" style="justify-content:flex-end; margin-top:10px">
+        <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
+        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
+
+  if (!connected) {
+    $('#syConnect').onclick = async () => {
+      const c = await getSyncCfg();
+      const typed = $('#syAppKey').value.trim();
+      if (typed) c.appKey = typed;
+      await saveSyncCfg();
+      startDropboxAuth();
+    };
+  } else {
+    $('#sySetPass').onclick = async () => {
+      const p = $('#syPass').value;
+      if (p.length < 8) { toast('Use at least 8 characters'); return; }
+      await setPassphrase(p, $('#syRemember').checked);
+      toast('Passphrase set — syncing now'); renderSyncPanel(); syncNow();
+    };
+    $('#sySync').onclick = () => syncNow();
+    $('#syDisconnect').onclick = async () => {
+      if (!confirm('Disconnect this device from Dropbox? Local data stays; the other device is untouched.')) return;
+      await disconnectSync(); renderSyncPanel();
+    };
+    if (needsPassphrase && syncFocusPassphrase) {
+      syncFocusPassphrase = false;
+      requestAnimationFrame(() => $('#syPass')?.focus());
+    }
+  }
+}
