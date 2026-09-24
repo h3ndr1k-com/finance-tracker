@@ -8,7 +8,7 @@ test('named failure states have a next action and never mention secrets', () => 
     'missing-household-token', 'missing-app-key', 'redirect-mismatch', 'auth-failure', 'reconnect-required',
     'offline', 'wrong-passphrase-or-missing', 'wrong-passphrase',
     'dropbox-conflict', 'dropbox-rate-limit', 'invalid-remote-file', 'sync-error',
-    'sync-server-unavailable',
+    'sync-server-unavailable', 'household-empty',
   ];
   for (const issue of named) {
     const action = issues.syncIssueAction(issue, { householdConfigured: true, householdConnected: true, appKeyConfigured: true, dropboxConnected: false, passphraseReady: true });
@@ -29,6 +29,7 @@ test('inferSyncIssue maps UI states to precise codes', () => {
   assert.equal(issues.inferSyncIssue('rate-limit'), 'dropbox-rate-limit');
   assert.equal(issues.inferSyncIssue('error', 'Passphrase does not match'), 'wrong-passphrase');
   assert.equal(issues.inferSyncIssue('error', 'That Dropbox file is not a Ledger snapshot'), 'invalid-remote-file');
+  assert.equal(issues.inferSyncIssue('needs-data'), 'household-empty');
   assert.equal(issues.inferSyncIssue('ok'), null);
 });
 

@@ -2615,7 +2615,7 @@ function showSettings() {
       ${('Notification' in window && Notification.permission !== 'granted') ? '<button class="ghost sm" id="sEnableReminders" type="button">Allow notifications</button>' : ''}
     </div>
     <h2 style="margin-top:18px">Sync</h2>
-    <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
+    <div class="sub">Optional. Keeps your phones and computer on one encrypted household snapshot stored on this site. Same household token and same passphrase on every device. Dropbox is not used.</div>
     <div id="syncPanel" aria-live="polite"></div>
     <section class="settings-import" aria-labelledby="importHeading">
       <h2 id="importHeading">Import</h2>

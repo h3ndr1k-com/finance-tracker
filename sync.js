@@ -461,18 +461,20 @@ async function doSync() {
       const mayUpload = typeof LedgerSyncIssues === 'undefined'
         ? !!(merged && merged.transactions && merged.transactions.length)
         : LedgerSyncIssues.shouldUploadHouseholdSnapshot(merged);
+      const txCount = (merged.transactions || []).length;
+      const countDetail = txCount
+        ? `Household copy has ${txCount} transaction${txCount === 1 ? '' : 's'} on this device`
+        : 'Household copy has 0 transactions — on the computer that has your ledger, open Settings and tap Sync now, then Sync now here';
       if (!mayUpload) {
         const m = await getMeta(); m.lastSync = Date.now(); await saveMeta();
-        setStatus('ok', remote
-          ? ''
-          : 'Household is empty — tap Sync now on the computer that has the transactions');
+        setStatus(txCount ? 'ok' : 'needs-data', countDetail, txCount ? null : 'household-empty');
         if (typeof renderAll === 'function') renderAll();
         return;
       }
       try {
         const rev = await uploadRemote(merged, remote ? remote.rev : null);
         const m = await getMeta(); m.remoteRev = rev; m.lastSync = Date.now(); await saveMeta();
-        setStatus('ok');
+        setStatus('ok', countDetail);
         if (typeof renderAll === 'function') renderAll();
         return;
       } catch (e) {
@@ -678,14 +680,15 @@ async function renderSyncPanel() {
     'missing-app-key': 'Household token required', 'redirect-mismatch': 'Redirect URI mismatch',
     'auth-failure': 'Sign-in failed', conflict: 'Sync conflict', 'rate-limit': 'Sync rate limit',
   };
-  const issue = st.issue || (!diag.householdConfigured && !diag.dropboxConnected ? 'missing-household-token' : null);
-  const nextAction = typeof LedgerSyncIssues !== 'undefined'
+  const issue = st.issue || (!connected && !diag.householdConfigured && !diag.dropboxConnected ? 'missing-household-token' : null);
+  const readyCopy = 'This phone is linked. If balances are still empty, open Ledger on the computer that has the data and tap Sync now, then tap Sync now here.';
+  const nextAction = issue && typeof LedgerSyncIssues !== 'undefined'
     ? LedgerSyncIssues.syncIssueAction(issue, diag)
-    : (st.detail || 'Paste the household token, connect, then set the shared passphrase on each device.');
+    : (st.detail || (connected ? readyCopy : 'Paste the household token, tap Connect household, then set the shared passphrase.'));
   const sw = diag.serviceWorker;
   const swLine = !sw ? 'Unavailable' : !sw.supported ? 'Not supported in this browser'
     : `${sw.controller ? 'Controlling this tab' : 'Not controlling yet'} · cache ${esc(sw.cacheVersion || '?')}${sw.update !== 'none' ? ` · update ${esc(sw.update)}` : ''}`;
-  const problemStates = ['error', 'needs-auth', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'missing-household-token', 'conflict', 'rate-limit'];
+  const problemStates = ['error', 'needs-auth', 'needs-data', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'missing-household-token', 'conflict', 'rate-limit'];
   const busLabel = household ? 'Household API (this site)' : connected ? 'Dropbox (legacy)' : 'Not connected';
   el.innerHTML = `
     <div class="formrow" style="margin-top:10px"><label>Status</label>
