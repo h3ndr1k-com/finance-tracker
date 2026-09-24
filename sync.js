@@ -625,6 +625,40 @@ async function getServiceWorkerDiagnostics() {
   };
 }
 
+function relTime(ms) {
+  if (!ms) return 'never';
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+async function probeHouseholdApi(token) {
+  if (!token) return 'Not checked (no token on this device yet)';
+  try {
+    const r = await fetch(HOUSEHOLD_SYNC_URL, {
+      method: 'GET',
+      headers: householdHeaders(token, { Accept: 'application/octet-stream' }),
+      cache: 'no-store',
+    });
+    if (r.status === 200) {
+      const len = r.headers.get('content-length');
+      return len === '0' || !len
+        ? 'Reachable · household snapshot is empty — run Sync now on the device that has your data first'
+        : 'Reachable · encrypted snapshot is on the server';
+    }
+    if (r.status === 404 || r.status === 204) {
+      return 'Reachable · no snapshot yet — on your computer, Connect household, set passphrase, tap Sync now, then Sync now here';
+    }
+    if (r.status === 503) return 'Host missing HOUSEHOLD_SYNC_TOKEN or blob store — fix Vercel env and redeploy';
+    if (r.status === 401 || r.status === 403) return 'Token rejected — paste the same household token as on your other devices';
+    return `Unexpected response ${r.status} from /api/sync`;
+  } catch {
+    return 'Cannot reach /api/sync — use the same https production URL on phone and desktop (not a local file or preview URL unless that deploy is configured)';
+  }
+}
+
 async function renderSyncPanel() {
   const el = typeof $ === 'function' ? $('#syncPanel') : null;
   if (!el) return;
@@ -634,6 +668,7 @@ async function renderSyncPanel() {
   const st = getStatus();
   const m = await getMeta();
   const diag = await getSyncDiagnostics();
+  const apiProbe = await probeHouseholdApi(cfg.householdToken);
   const connected = isSyncLinked(cfg);
   const household = isHouseholdLinked(cfg);
   const needsPassphrase = connected && !hasPassphrase();
@@ -665,6 +700,8 @@ async function renderSyncPanel() {
         <dt>Sync bus</dt><dd>${esc(busLabel)}</dd>
         <dt>Passphrase</dt><dd>${hasPassphrase() ? 'Ready on this device' : 'Not entered on this device'}</dd>
         <dt>Last successful sync</dt><dd class="num">${esc(m.lastSync ? new Date(m.lastSync).toLocaleString() : 'Never')}</dd>
+        <dt>Household API</dt><dd>${esc(apiProbe)}</dd>
+        <dt>This URL</dt><dd class="num">${esc(typeof location !== 'undefined' ? location.origin + location.pathname : '')}</dd>
       </dl>
       <div class="sync-next"><strong>Next step:</strong> ${esc(nextAction)}</div>
     </section>

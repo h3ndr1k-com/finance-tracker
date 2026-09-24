@@ -2707,67 +2707,8 @@ function showSettings() {
   };
 }
 
-/* ---------- sync settings panel ---------- */
-const SYNC_LABEL = {
-  off: 'Not connected', idle: 'Connected', syncing: 'Syncing…', ok: 'Synced',
-  offline: 'Offline, will retry', error: 'Sync problem', 'needs-pass': 'Passphrase required', 'needs-auth': 'Reconnect Dropbox',
-};
-function relTime(ms) {
-  if (!ms) return 'never';
-  const s = Math.round((Date.now() - ms) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
-}
-async function renderSyncPanel() {
-  const el = $('#syncPanel'); if (!el) return;
-  if (typeof getSyncCfg !== 'function') { el.textContent = 'Sync module not loaded.'; return; }
-  const cfg = await getSyncCfg();
-  const st = getStatus(); const m = await getMeta();
-  const connected = cfg.enabled && cfg.refreshToken;
-  const needsPassphrase = connected && !hasPassphrase();
-  el.innerHTML = `
-    <div class="formrow" style="margin-top:10px"><label>Status</label>
-      <span class="pill ${st.state === 'error' || st.state === 'needs-auth' ? 'grey' : ''}">${esc(SYNC_LABEL[st.state] || st.state)}</span>
-      ${connected ? `<span class="sub num">last sync ${esc(relTime(m.lastSync))}</span>` : ''}
-      ${st.detail ? `<span class="sub">${esc(st.detail)}</span>` : ''}</div>
-    ${!connected ? `
-      <div class="formrow"><label>Dropbox app key</label><input id="syAppKey" value="${esc(cfg.appKey || '')}" placeholder="from dropbox.com/developers"></div>
-      <div class="sub">In Dropbox Developer Console → Settings → OAuth 2 → Redirect URIs, add this exact address: <code>${esc(typeof redirectUri === 'function' ? redirectUri() : location.href)}</code>. Save there, reload this page, then connect.</div>
-      <div class="sub">If you want this key to survive new previews or rebuilds, drop a <code>sync-config.json</code> beside the app with <code>{"appKey":"..."}</code>.</div>
-      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect Dropbox</button></div>`
-    : `
-      ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>Dropbox is connected — one more step.</strong><p>Enter the same passphrase used on the other device. Dropbox never stores it, so reconnecting alone cannot start syncing.</p></div>` : ''}
-      <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other device'}">
-        <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember on this device</label>
-        <button class="ghost sm" id="sySetPass">${needsPassphrase ? 'Unlock & sync' : 'Update'}</button></div>
-      <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the Dropbox copy is unrecoverable.</div>
-      <div class="formrow" style="justify-content:flex-end; margin-top:10px">
-        <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
-        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
-
-  if (!connected) {
-    $('#syConnect').onclick = async () => { const c = await getSyncCfg(); c.appKey = $('#syAppKey').value.trim(); await saveSyncCfg(); startDropboxAuth(); };
-  } else {
-    $('#sySetPass').onclick = async () => {
-      const p = $('#syPass').value;
-      if (p.length < 8) { toast('Use at least 8 characters'); return; }
-      await setPassphrase(p, $('#syRemember').checked);
-      toast('Passphrase set — syncing now'); renderSyncPanel(); syncNow();
-    };
-    $('#sySync').onclick = () => syncNow();
-    $('#syDisconnect').onclick = async () => {
-      if (!confirm('Disconnect this device from Dropbox? Local data stays; the other device is untouched.')) return;
-      await disconnectSync(); renderSyncPanel();
-    };
-    if (needsPassphrase && syncFocusPassphrase) {
-      syncFocusPassphrase = false;
-      requestAnimationFrame(() => $('#syPass')?.focus());
-    }
-  }
-}
-document.addEventListener('syncstatus', () => { if ($('#settingsModal').classList.contains('open')) renderSyncPanel(); });
+/* Sync settings UI lives in sync.js (household token + diagnostics). */
+document.addEventListener('syncstatus', () => { if ($('#settingsModal').classList.contains('open') && typeof renderSyncPanel === 'function') renderSyncPanel(); });
 
 /* ---------- JSON backup ---------- */
 function triggerJsonImport() { $('#jsonInput')?.click(); }
@@ -2932,6 +2873,7 @@ if ('serviceWorker' in navigator) {
 if (navigator.storage?.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).then(p => console.log('storage persisted:', p));
 const tesScript = document.createElement('script'); tesScript.src = './vendor/tesseract.min.js'; document.head.appendChild(tesScript);
 </script>
+<script src="./sync-issues.js"></script>
 <script src="./sync.js"></script>
 <script>
 boot();
