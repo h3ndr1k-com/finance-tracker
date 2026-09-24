@@ -680,7 +680,7 @@ async function renderSyncPanel() {
     'missing-app-key': 'Household token required', 'redirect-mismatch': 'Redirect URI mismatch',
     'auth-failure': 'Sign-in failed', conflict: 'Sync conflict', 'rate-limit': 'Sync rate limit',
   };
-  const issue = st.issue || (!connected && !diag.householdConfigured && !diag.dropboxConnected ? 'missing-household-token' : null);
+  const issue = st.issue || (!household ? 'missing-household-token' : null);
   const readyCopy = 'This phone is linked. If balances are still empty, open Ledger on the computer that has the data and tap Sync now, then tap Sync now here.';
   const nextAction = issue && typeof LedgerSyncIssues !== 'undefined'
     ? LedgerSyncIssues.syncIssueAction(issue, diag)
@@ -708,11 +708,11 @@ async function renderSyncPanel() {
       </dl>
       <div class="sync-next"><strong>Next step:</strong> ${esc(nextAction)}</div>
     </section>
-    ${!connected ? `
-      <div class="formrow"><label>Household token</label><input id="syHouseholdToken" type="password" value="" autocomplete="off" placeholder="shared with every device"></div>
-      <div class="sub">Same token on Hendrik’s phone, desktop, and the other phone. It stays on this device. There is no Dropbox or Google sign-in — Connect never leaves this app.</div>
-      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect household</button></div>`
-    : `
+    ${!household ? `
+      <div class="sync-recovery" role="status"><strong>Household token is not saved on this computer.</strong><p>${connected ? 'Sync now is still talking to the old Dropbox link, so pasting the token into the passphrase box does not register it. ' : ''}Paste the household token below and tap Connect household.</p></div>
+      <div class="formrow"><label for="syHouseholdToken">Household token</label><input id="syHouseholdToken" type="password" value="" autocomplete="off" placeholder="shared with every device"></div>
+      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect household</button></div>` : ''}
+    ${connected ? `
       ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>This device is linked — one more step.</strong><p>Enter the same encryption passphrase used on the other devices. The server only stores ciphertext, so the token alone cannot start syncing.</p></div>` : ''}
       <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other devices'}">
         <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember on this device</label>
@@ -720,18 +720,19 @@ async function renderSyncPanel() {
       <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the household copy is unrecoverable — keep a JSON export.</div>
       <div class="formrow" style="justify-content:flex-end; margin-top:10px">
         <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
-        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
+        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>` : ''}`;
 
-  if (!connected) {
+  if (!household) {
     $('#syConnect').onclick = async () => {
       const typed = $('#syHouseholdToken').value.trim();
-      if (!typed) { toast('Paste the household token first'); return; }
+      if (!typed) { toast('Paste the household token in the Household token box, not the passphrase box'); return; }
       try {
         await connectHousehold(typed);
-        toast('Household linked. Enter the shared passphrase to start syncing.');
-        syncFocusPassphrase = true;
-        setStatus('needs-pass', 'Enter the shared passphrase to sync');
+        toast('Household token saved. Enter the shared passphrase if it is not set, then Sync now.');
+        syncFocusPassphrase = !hasPassphrase();
+        if (!hasPassphrase()) setStatus('needs-pass', 'Enter the shared passphrase to sync');
         renderSyncPanel();
+        if (hasPassphrase()) syncNow();
       } catch (e) {
         const classified = typeof LedgerSyncIssues !== 'undefined'
           ? LedgerSyncIssues.classifySyncFailure(e, navigator.onLine)
@@ -745,7 +746,8 @@ async function renderSyncPanel() {
         }
       }
     };
-  } else {
+  }
+  if (connected) {
     $('#sySetPass').onclick = async () => {
       const p = $('#syPass').value;
       if (p.length < 8) { toast('Use at least 8 characters'); return; }
