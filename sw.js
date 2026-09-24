@@ -1,6 +1,6 @@
 importScripts('./reminders.js');
 
-const CACHE = 'ledger-v32';
+const CACHE = 'ledger-v34';
 const APP_VIEWPORT = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
 
 function applyAppFeelHtml(html) {
