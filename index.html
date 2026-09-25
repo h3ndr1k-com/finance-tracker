@@ -765,6 +765,27 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   .split-view .split-detail { position: static; }
   .split-view .split-detail.empty { display: none; }
 }
+/* ---------- local AI check-in chat ---------- */
+.modal-chat { display: flex; flex-direction: column; gap: 0; }
+.chathead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.chathead h2 { margin: 0; flex: 1; }
+.chatlog { display: flex; flex-direction: column; gap: 10px; min-height: 220px; max-height: 56dvh; overflow-y: auto; padding: 2px; }
+.bubble { max-width: 86%; padding: 10px 14px; border-radius: var(--radius-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.user { align-self: flex-end; background: var(--accent-soft); color: var(--accent-text); border-bottom-right-radius: 4px; }
+.bubble.ai { align-self: flex-start; background: var(--raised); border-bottom-left-radius: 4px; }
+.bubble.ai.typing { color: var(--muted); font-style: italic; }
+.chatnote { align-self: center; font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--hairline); border-radius: 999px; padding: 4px 12px; max-width: 90%; text-align: center; }
+.chatnote.err { color: var(--coral); border-color: var(--coral-soft); }
+.chatactions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.chip { border: 1px solid var(--hairline); background: var(--card); color: var(--ink); border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.chip:hover { background: var(--raised); }
+.chatrow { display: flex; gap: 8px; margin-top: 12px; }
+.chatrow input { flex: 1; }
+
+@media (max-width: 640px) {
+  .bubble { max-width: 94%; }
+  .chatlog { max-height: 48dvh; }
+}
 </style>
 </head>
 <body>
@@ -782,6 +803,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
     <button type="button" data-view="subscriptions">Recurring</button>
     <button type="button" data-view="credit-cards">Credit cards</button>
   </nav>
+  <button type="button" class="iconbtn" id="aiBtn" title="AI check-in (local model)" aria-label="AI check-in">✦</button>
   <button type="button" class="iconbtn" id="themeBtn" title="Use light theme" aria-label="Use light theme">◐</button>
   <button type="button" class="iconbtn" id="addTxBtn" title="Add transaction" aria-label="Add transaction">＋</button>
   <button type="button" class="iconbtn" id="settingsBtn" title="Settings" aria-label="Open settings">⚙</button>
@@ -855,6 +877,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
 <div class="modal-backdrop" id="editModal"><div class="modal" id="editBody" role="dialog" aria-modal="true"></div></div>
 <div class="modal-backdrop" id="jarModal"><div class="modal" id="jarBody" role="dialog" aria-modal="true"></div></div>
 <div class="modal-backdrop" id="detailModal"><div class="modal" id="detailBody" role="dialog" aria-modal="true"></div></div>
+<div class="modal-backdrop" id="aiModal"><div class="modal modal-chat" id="aiBody" role="dialog" aria-modal="true" aria-label="AI check-in"></div></div>
 <div class="toast" id="toast"></div>
 <input type="file" id="csvInput" accept=".csv,text/csv" multiple hidden>
 <input type="file" id="imgInput" accept="image/*" multiple hidden>
@@ -1042,7 +1065,7 @@ const DB = (() => {
 /* ---------- state ---------- */
 const S = {
   tx: [], txIds: new Set(),
-  settings: { base: 'CAD', theme: 'dark' },
+  settings: { base: 'CAD', theme: 'dark', aiUrl: 'http://localhost:11434', aiModel: '' },
   rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {},
   jars: [], catJar: {}, jarMoves: [], jarAdjustments: [],
   subscriptions: [], creditCards: [], businesses: {},
@@ -2580,6 +2603,180 @@ function openBudgetEditor(category) {
   };
 }
 
+/* ---------- local AI check-in (Ollama, stays on this machine) ---------- */
+let aiHistory = [];   // [{role:'user'|'assistant', content}] — page-local, never synced
+const AI_TOOLS = [
+  { type: 'function', function: { name: 'add_transactions', description: 'Record one or more transactions in the ledger. Call once with every item the user listed.', parameters: { type: 'object', required: ['items'], properties: {
+    items: { type: 'array', minItems: 1, items: { type: 'object', required: ['description', 'amount'], properties: {
+      description: { type: 'string', description: 'Merchant or note' },
+      amount: { type: 'number', description: 'Positive amount of money moved' },
+      flow: { type: 'string', enum: ['out', 'in', 'transfer'], description: 'out = spending (default), in = income, transfer = moving money between accounts' },
+      date: { type: 'string', description: 'YYYY-MM-DD, defaults to today' },
+      currency: { type: 'string', description: 'CAD, EUR or USD' },
+      account: { type: 'string', description: 'Account name, e.g. Amex; default Manual' },
+      category: { type: 'string', description: 'One of the allowed categories' },
+      business: { type: 'string', description: 'Business fund tag, or leave empty for personal' },
+    } } },
+  } } } },
+  { type: 'function', function: { name: 'search_transactions', description: 'Look up recorded transactions by text and/or date range.', parameters: { type: 'object', properties: {
+    query: { type: 'string' }, from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' }, limit: { type: 'number', description: 'Max rows, default 20' },
+  } } } },
+  { type: 'function', function: { name: 'month_summary', description: 'Spending and income totals by category for one month.', parameters: { type: 'object', properties: { month: { type: 'string', description: 'YYYY-MM, default current month' } } } } },
+];
+function aiBase() { return (S.settings.aiUrl || 'http://localhost:11434').replace(/\/+$/, ''); }
+function aiSystemPrompt() {
+  return `You are Ledger's private finance assistant, running entirely on the user's own machine. Today is ${todayISO()}. Base currency: ${S.settings.base}. Categories: ${CATEGORIES.join(', ')}. Accounts: ${Object.keys(S.accounts).join(', ') || '(none yet — use "Manual")'}.
+When the user lists what they spent, call add_transactions once with every item: pick the most fitting category, amounts positive, flow "out" for spending, "in" for income. Default date is today unless they say otherwise. Leave currency unset (defaults to ${S.settings.base}) unless the user names a different currency for a specific item. After the tool responds, confirm in one or two sentences with the total. If they ask what they spent or how much is left, use search_transactions or month_summary first. Never invent transactions. Be brief and friendly.`;
+}
+async function aiFetch(path, body) {
+  let res;
+  try { res = await fetch(aiBase() + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+  catch (e) { throw new Error(`Can't reach the local model at ${aiBase()}. Is Ollama running? If the console shows a CORS error, start it with OLLAMA_ORIGINS="*".`); }
+  if (!res.ok) { const text = await res.text().catch(() => ''); throw new Error(`Ollama error ${res.status}: ${text.slice(0, 200)}`); }
+  return res.json();
+}
+// Small local models over-eagerly guess "USD" for bare "$" amounts, so the
+// caller passes the user's own message and we only honor a currency the user
+// actually named (code or symbol). Everything else falls back to base.
+function currenciesMentioned(text) {
+  const t = ' ' + String(text) + ' '; const found = new Set();
+  for (const c of CURRENCIES) if (new RegExp('\\b' + c + '\\b', 'i').test(t)) found.add(c);
+  if (t.includes('€')) found.add('EUR');
+  if (/US?\\?\$/.test(t) || /\\bUSD\\b/i.test(t)) found.add('USD');
+  if (/C\\?\$/.test(t)) found.add('CAD');
+  return found;
+}
+async function aiRunTool(name, rawArgs, userText) {
+  let args = rawArgs || {};
+  const mentioned = currenciesMentioned(userText || '');
+  if (typeof args === 'string') { try { args = JSON.parse(args); } catch { throw new Error('Bad tool arguments'); } }
+  if (name === 'add_transactions') {
+    const today = todayISO(); const saved = []; let dups = 0;
+    for (const it of (args.items || []).slice(0, 30)) {
+      const desc = String(it.description || '').trim(); if (!desc) continue;
+      const amt = Math.abs(parseFloat(it.amount)); if (!isFinite(amt) || amt === 0) continue;
+      const flow = it.flow === 'in' ? 'in' : it.flow === 'transfer' ? 'transfer' : 'out';
+      const account = String(it.account || 'Manual').trim() || 'Manual';
+      const currency = mentioned.size === 1 ? [...mentioned][0] : (CURRENCIES.includes(it.currency) && mentioned.has(it.currency) ? it.currency : (S.accounts[account]?.currency || S.settings.base));
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(it.date || '')) ? it.date : today;
+      const category = CATEGORIES.includes(it.category) ? it.category : categorize(desc);
+      const business = String(it.business || '').trim();
+      const t = { date, desc, amount: -amt, currency, account, source: 'ai', category, business, jar: null, transfer: flow === 'transfer', hasThumb: false };
+      if (flow === 'in') t.amount = amt;
+      t.id = txHash(t);
+      if (S.txIds.has(t.id)) { dups++; continue; }
+      await DB.putTx([t]); S.tx.push(t); S.txIds.add(t.id);
+      if (business) await ensureBusiness(business);
+      await learnRule(desc, category);
+      if (!(account in S.accounts)) { S.accounts[account] = { currency }; await DB.kvSet('accounts', S.accounts); }
+      saved.push(t);
+    }
+    if (saved.length) renderAll();
+    return { added: saved.length, duplicatesSkipped: dups, saved: saved.map(t => `${t.date} ${t.desc} ${fmtMoney(t.amount, t.currency)} → ${t.category} (${t.account})`) };
+  }
+  if (name === 'search_transactions') {
+    const q = String(args.query || '').toLowerCase();
+    const limit = Math.min(Number(args.limit) || 20, 50);
+    const hits = S.tx.filter(t => (!q || t.desc.toLowerCase().includes(q)) && (!args.from || t.date >= args.from) && (!args.to || t.date <= args.to))
+      .sort((a, b) => b.date.localeCompare(a.date)).slice(0, limit)
+      .map(t => ({ date: t.date, desc: t.desc, amount: t.amount, currency: t.currency, category: t.category, account: t.account }));
+    return { count: hits.length, transactions: hits };
+  }
+  if (name === 'month_summary') {
+    const mk = /^\d{4}-\d{2}$/.test(String(args.month || '')) ? args.month : thisMonth();
+    const byCat = {}, byMerchant = {};
+    let income = 0, spent = 0;
+    for (const t of S.tx.filter(t => monthKey(t.date) === mk && !t.transfer)) {
+      const base = toBase(t.amount, t.currency);
+      if (base >= 0) { income += base; continue; }
+      spent += -base;
+      byCat[t.category] = (byCat[t.category] || 0) + -base;
+      const m = t.desc.trim().slice(0, 30); byMerchant[m] = (byMerchant[m] || 0) + -base;
+    }
+    return { month: mk, currency: S.settings.base, income: +income.toFixed(2), spent: +spent.toFixed(2), byCategory: byCat, topMerchants: Object.entries(byMerchant).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([desc, total]) => ({ desc, total: +total.toFixed(2) })) };
+  }
+  throw new Error(`Unknown tool: ${name}`);
+}
+function aiBubble(role, text, cls) {
+  const log = $('#chatLog'); if (!log) return null;
+  const el = document.createElement('div'); el.className = 'bubble ' + (role === 'user' ? 'user' : 'ai') + (cls ? ' ' + cls : ''); el.textContent = text;
+  log.appendChild(el); log.scrollTop = log.scrollHeight; return el;
+}
+function aiNote(text, err) {
+  const log = $('#chatLog'); if (!log) return;
+  const el = document.createElement('div'); el.className = 'chatnote' + (err ? ' err' : ''); el.textContent = text;
+  log.appendChild(el); log.scrollTop = log.scrollHeight;
+}
+async function aiSend(text) {
+  text = text.trim(); if (!text) return;
+  const input = $('#chatInput'); if (input) input.value = '';
+  if (!S.settings.aiModel) { aiNote('Pick a model first — run `ollama pull qwen2.5:3b`, then refresh the model list.', true); return; }
+  aiHistory.push({ role: 'user', content: text });
+  aiBubble('user', text);
+  const typing = aiBubble('assistant', 'Thinking…', 'typing');
+  const messages = [{ role: 'system', content: aiSystemPrompt() }, ...aiHistory];
+  try {
+    for (let round = 0; round < 4; round++) {
+      const res = await aiFetch('/api/chat', { model: S.settings.aiModel, messages, tools: AI_TOOLS, stream: false });
+      const msg = res.message || {};
+      if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) {
+        messages.push(msg); typing.remove();
+        for (const tc of msg.tool_calls) {
+          const fn = tc.function || {}; const tName = fn.name || '';
+          let out;
+          try { out = await aiRunTool(tName, fn.arguments, text); aiNote(`✓ ${tName}`); }
+          catch (e) { out = { error: String(e.message || e) }; aiNote(`✗ ${tName}: ${out.error}`, true); }
+          messages.push({ role: 'tool', content: JSON.stringify(out) });
+        }
+        typing.remove(); const t2 = aiBubble('assistant', 'Thinking…', 'typing');
+        continue;
+      }
+      const reply = String(msg.content || '').trim() || '(no reply)';
+      if (typing) typing.remove();
+      aiHistory.push({ role: 'assistant', content: reply });
+      aiBubble('assistant', reply);
+      return;
+    }
+    if (typing) typing.remove();
+    aiNote('The model kept calling tools without answering. Try rephrasing.', true);
+  } catch (e) {
+    if (typing) typing.remove();
+    aiHistory.pop();
+    aiNote(String(e.message || e), true);
+  }
+}
+async function openAiChat() {
+  const modal = $('#aiModal'), body = $('#aiBody');
+  body.innerHTML = `
+    <div class="chathead"><h2>AI check-in</h2><select id="chatModel" style="flex:none;max-width:180px"><option value="">Loading models…</option></select></div>
+    <div class="chatlog" id="chatLog"></div>
+    <div class="chatactions"><button type="button" class="chip" id="chipCheckin">Daily check-in</button><button type="button" class="chip" id="chipToday">What did I spend today?</button><button type="button" class="chip" id="chipMonth">How's this month?</button></div>
+    <div class="chatrow"><input id="chatInput" placeholder="What did you spend money on?" aria-label="Message the local model"><button class="primary" id="chatSend" type="button">Send</button></div>
+    <div class="sub" style="margin-top:10px">Runs on your machine via Ollama — nothing leaves this device. Transactions it saves are tagged so you can spot-check them.</div>`;
+  modal.classList.add('open');
+  const sel = $('#chatModel');
+  try {
+    const tags = await fetch(aiBase() + '/api/tags').then(r => { if (!r.ok) throw 0; return r.json(); });
+    const models = (tags.models || []).map(m => m.name);
+    if (!models.length) { sel.innerHTML = '<option value="">No models installed</option>'; aiNote('No Ollama models yet. Run: ollama pull qwen2.5:3b', true); }
+    else {
+      sel.innerHTML = models.map(m => `<option ${m === S.settings.aiModel ? 'selected' : ''}>${esc(m)}</option>`).join('');
+      if (!S.settings.aiModel || !models.includes(S.settings.aiModel)) { S.settings.aiModel = models[0]; await DB.kvSet('settings', S.settings); }
+      sel.value = S.settings.aiModel;
+    }
+  } catch { sel.innerHTML = '<option value="">Ollama not reachable</option>'; aiNote(`Can't reach Ollama at ${aiBase()}. Start it, and if the browser console shows a CORS error, run OLLAMA_ORIGINS="* ollama serve".`, true); }
+  sel.onchange = async () => { S.settings.aiModel = sel.value; await DB.kvSet('settings', S.settings); };
+  $('#chatSend').onclick = () => aiSend($('#chatInput').value);
+  $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); aiSend($('#chatInput').value); } });
+  $('#chipCheckin').onclick = () => { $('#chatInput').value = "Daily check-in — today I spent: "; $('#chatInput').focus(); };
+  $('#chipToday').onclick = () => aiSend('What did I spend money on today? Give me a short breakdown.');
+  $('#chipMonth').onclick = () => aiSend("How's this month going? Totals by category, and anything that stands out.");
+  if (!aiHistory.length) aiBubble('assistant', "Hi! Tell me what you spent today — e.g. “groceries $42 at Superstore, $3.10 bus, $15 Netflix” — and I'll categorize and file everything.");
+  else aiHistory.forEach(m => aiBubble(m.role, m.content));
+  $('#chatInput').focus();
+}
+
+
 /* ---------- settings ---------- */
 function showSettings() {
   const body = $('#settingsBody');
@@ -2614,6 +2811,11 @@ function showSettings() {
       <span class="sub" id="reminderPermStatus">${!('Notification' in window) ? 'Not supported in this browser' : Notification.permission === 'granted' ? 'Allowed on this device' : Notification.permission === 'denied' ? 'Blocked — enable in browser settings' : 'Not enabled yet'}</span>
       ${('Notification' in window && Notification.permission !== 'granted') ? '<button class="ghost sm" id="sEnableReminders" type="button">Allow notifications</button>' : ''}
     </div>
+    <h2 style="margin-top:18px">Local AI</h2>
+    <div class="sub">The ✦ check-in chat talks to a model running on this machine via Ollama. Your data never leaves the device — the model reads your ledger to answer, and can save transactions for you. Endpoint and model choice stay device-local.</div>
+    <div class="formrow"><label for="sAiUrl">Ollama endpoint</label><input id="sAiUrl" value="${esc(S.settings.aiUrl || 'http://localhost:11434')}" placeholder="http://localhost:11434"><button class="primary sm" id="sAiTest" type="button">Test</button></div>
+    <div class="formrow"><label for="sAiModel">Model</label><input id="sAiModel" value="${esc(S.settings.aiModel || '')}" placeholder="qwen2.5:3b" list="aiModelList"><datalist id="aiModelList"><option>qwen2.5:3b</option><option>llama3.2:3b</option><option>llama3.1:8b</option></datalist></div>
+    <div class="sub" id="sAiStatus">${''}</div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
     <div id="syncPanel" aria-live="polite"></div>
@@ -2644,6 +2846,19 @@ function showSettings() {
     else handleFiles(files);
   });
   $('#sBase').onchange = async () => { S.settings.base = $('#sBase').value; await DB.kvSet('settings', S.settings); renderAll(); };
+  $('#sAiUrl').onchange = async () => { S.settings.aiUrl = $('#sAiUrl').value.trim().replace(/\/+$/, '') || 'http://localhost:11434'; $('#sAiUrl').value = S.settings.aiUrl; await DB.kvSet('settings', S.settings); };
+  $('#sAiModel').onchange = async () => { S.settings.aiModel = $('#sAiModel').value.trim(); await DB.kvSet('settings', S.settings); };
+  $('#sAiTest').onclick = async () => {
+    const status = $('#sAiStatus'); status.textContent = 'Testing…';
+    try {
+      const url = ($('#sAiUrl').value.trim() || 'http://localhost:11434').replace(/\/+$/, '');
+      const tags = await fetch(url + '/api/tags').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+      const models = (tags.models || []).map(m => m.name);
+      status.textContent = models.length ? `Connected. Models: ${models.join(', ')}` : 'Connected, but no models installed. Run: ollama pull qwen2.5:3b';
+      S.settings.aiUrl = url; await DB.kvSet('settings', S.settings);
+    } catch (e) { status.textContent = 'Not reachable. Is Ollama running? If the console shows a CORS error, start it with OLLAMA_ORIGINS="* ollama serve".'; }
+  };
+
   $$('.rateinp').forEach(inp => inp.onchange = async () => { const cur = inp.dataset.rcur, v = parseFloat(inp.value); S.rates = S.rates.filter(r => r.cur !== cur); if (!isNaN(v) && v > 0) S.rates.push({ cur, eurPer: v, date: todayISO() }); await DB.kvSet('rates', S.rates); renderAll(); showSettings(); });
   $('#sAddAccount').onclick = async () => {
     const name = $('#sAccountName').value.trim(), currency = $('#sAccountCurrency').value;
@@ -2700,7 +2915,7 @@ function showSettings() {
   $('#sImportBackup').onclick = triggerJsonImport;
   $('#sWipe').onclick = async () => {
     if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, recurring expenses, and credit cards? This cannot be undone.')) return;
-    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], businesses: {}, settings: { base: S.settings.base, theme: S.settings.theme, recurringReminders: S.settings.recurringReminders } });
+    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], businesses: {}, settings: { base: S.settings.base, theme: S.settings.theme, recurringReminders: S.settings.recurringReminders, aiUrl: S.settings.aiUrl, aiModel: S.settings.aiModel } });
     await DB.kvSet('reminderLog', {}, false);
     S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar);
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
@@ -2865,6 +3080,9 @@ function applyTheme(t) {
 }
 $('#themeBtn').onclick = async () => { S.settings.theme = S.settings.theme === 'dark' ? 'light' : 'dark'; applyTheme(S.settings.theme); await DB.kvSet('settings', S.settings); };
 $('#settingsBtn').onclick = showSettings;
+// Chat body markup is a static template; model names interpolated into the
+// <select> are passed through esc() first, so no raw Ollama output reaches HTML.
+$('#aiBtn').onclick = openAiChat;
 $('#privacyBtn').onclick = () => {
   $('#detailBody').innerHTML = `<h2>Private by design</h2><div class="sub">Ledger has no account system and no analytics.</div>
     <p style="margin:18px 0;max-width:58ch">Transactions and receipt data stay in this browser. Optional Dropbox sync encrypts your ledger before upload; your passphrase never leaves your devices.</p>

@@ -18,6 +18,16 @@ A proposed daily review-queue (still no bank creds in the PWA) is documented in 
 
 **Jars** are T. Harv Eker allocation buckets - income auto-splits by percentage, spending draws from each category's jar, all editable. The **Recurring** panel on Overview auto-detects subscriptions and flags price hikes.
 
+## AI check-in (local model)
+
+Click **✦** in the header for a private chat with a model running on your own machine via [Ollama](https://ollama.com). Nothing is sent to any cloud - the model answers from your ledger and can file transactions for you: *"daily check-in: $18.75 Tim Hortons, $120 Loblaws, $500 freelance income into Amex"* categorizes and saves everything, and you can ask *"what did I spend today?"* or *"how's this month?"*.
+
+1. Install Ollama and a tool-calling model: `ollama pull qwen2.5:3b`.
+2. Allow the app's origin to call Ollama from the browser: `launchctl setenv OLLAMA_ORIGINS "*"` (or `OLLAMA_ORIGINS="* ollama serve"` from a terminal), then restart Ollama. The chat and Settings → Local AI → Test will say so if CORS blocks you.
+3. Open ✦, pick the model in the dropdown, and check in.
+
+Works on the deployed https URL too, as long as Ollama runs on the same machine - browsers allow `https` pages to reach `http://localhost`. Model choice and endpoint are stored per device and never synced. Transactions the model saves are marked with source `ai` (visible in the JSON export), and its category choices feed the same learning rules as manual edits.
+
 ## Sync (optional, household devices)
 
 Off by default. When on, each device encrypts a full snapshot with a passphrase (LED1 / AES-GCM) and `GET`/`PUT`s that ciphertext to **`/api/sync` on this same origin**. The server stores bytes it cannot read. Connect never leaves the home-screen PWA — there is no OAuth redirect.
