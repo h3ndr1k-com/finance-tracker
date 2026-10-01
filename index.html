@@ -2816,6 +2816,11 @@ function showSettings() {
     <div class="formrow"><label for="sAiUrl">Ollama endpoint</label><input id="sAiUrl" value="${esc(S.settings.aiUrl || 'http://localhost:11434')}" placeholder="http://localhost:11434"><button class="primary sm" id="sAiTest" type="button">Test</button></div>
     <div class="formrow"><label for="sAiModel">Model</label><input id="sAiModel" value="${esc(S.settings.aiModel || '')}" placeholder="qwen2.5:3b" list="aiModelList"><datalist id="aiModelList"><option>qwen2.5:3b</option><option>llama3.2:3b</option><option>llama3.1:8b</option></datalist></div>
     <div class="sub" id="sAiStatus">${''}</div>
+    <h2 style="margin-top:18px">Telegram daily check-in</h2>
+    <div class="sub">A local bridge receives transactions you confirm in Telegram and writes them into this Ledger on this Mac. It only listens on this Mac; the bridge key stays on this device.</div>
+    <div class="formrow"><label for="sBridgeUrl">Bridge URL</label><input id="sBridgeUrl" value="${esc(S.settings.bridgeUrl || 'http://127.0.0.1:8788')}" placeholder="http://127.0.0.1:8788"><button class="primary sm" id="sBridgeTest" type="button">Test & sync</button></div>
+    <div class="formrow"><label for="sBridgeToken">Bridge key</label><input id="sBridgeToken" type="password" value="${esc(S.settings.bridgeToken || '')}" placeholder="Paste the local bridge key"></div>
+    <div class="sub" id="sBridgeStatus">${S.settings.bridgeToken ? 'Configured on this device.' : 'Set up the local bridge first, then paste its key here.'}</div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
     <div id="syncPanel" aria-live="polite"></div>
@@ -2857,6 +2862,21 @@ function showSettings() {
       status.textContent = models.length ? `Connected. Models: ${models.join(', ')}` : 'Connected, but no models installed. Run: ollama pull qwen2.5:3b';
       S.settings.aiUrl = url; await DB.kvSet('settings', S.settings);
     } catch (e) { status.textContent = 'Not reachable. Is Ollama running? If the console shows a CORS error, start it with OLLAMA_ORIGINS="* ollama serve".'; }
+  };
+  const saveBridgeSettings = async () => {
+    S.settings.bridgeUrl = $('#sBridgeUrl').value.trim().replace(/\/+$/, '') || 'http://127.0.0.1:8788';
+    S.settings.bridgeToken = $('#sBridgeToken').value.trim();
+    await DB.kvSet('settings', S.settings);
+  };
+  $('#sBridgeUrl').onchange = saveBridgeSettings;
+  $('#sBridgeToken').onchange = saveBridgeSettings;
+  $('#sBridgeTest').onclick = async () => {
+    const status = $('#sBridgeStatus'); status.textContent = 'Testing…';
+    try {
+      await saveBridgeSettings();
+      const result = await testLedgerBridge();
+      status.textContent = result.applied ? `Connected — added ${result.applied} transaction${result.applied === 1 ? '' : 's'}.` : 'Connected — no new Telegram transactions.';
+    } catch (e) { status.textContent = 'Could not connect. Check that the local bridge is running and its key is correct.'; }
   };
 
   $$('.rateinp').forEach(inp => inp.onchange = async () => { const cur = inp.dataset.rcur, v = parseFloat(inp.value); S.rates = S.rates.filter(r => r.cur !== cur); if (!isNaN(v) && v > 0) S.rates.push({ cur, eurPer: v, date: todayISO() }); await DB.kvSet('rates', S.rates); renderAll(); showSettings(); });
@@ -3050,6 +3070,7 @@ async function boot() {
   applyTheme(S.settings.theme || 'dark');
   renderAll();
   if (typeof initSync === 'function') initSync();   // never block first paint on network
+  if (typeof initLedgerBridge === 'function') initLedgerBridge();
   await syncReminderStateToSW();
   await registerReminderBackgroundSync();
   await checkRecurringReminders();
@@ -3151,6 +3172,7 @@ if (navigator.storage?.persist) navigator.storage.persisted().then(p => p || nav
 const tesScript = document.createElement('script'); tesScript.src = './vendor/tesseract.min.js'; document.head.appendChild(tesScript);
 </script>
 <script src="./sync.js"></script>
+<script src="./bridge/client.js"></script>
 <script>
 boot();
 </script>

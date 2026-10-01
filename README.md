@@ -28,6 +28,17 @@ Click **✦** in the header for a private chat with a model running on your own 
 
 Works on the deployed https URL too, as long as Ollama runs on the same machine - browsers allow `https` pages to reach `http://localhost`. Model choice and endpoint are stored per device and never synced. Transactions the model saves are marked with source `ai` (visible in the JSON export), and its category choices feed the same learning rules as manual edits.
 
+## Telegram daily check-in (local bridge)
+
+The Telegram routine is optional and stays on your Mac. At 8:30pm, Hermes asks what you spent. When you reply, Hermes adds only the transaction details you confirm to a local queue. Ledger pulls that queue from `http://127.0.0.1:8788`, writes the transactions to its own IndexedDB, then acknowledges them. The bridge has no public network listener and does not read your ledger, bank accounts, or household-sync passphrase.
+
+1. Start the local bridge: `node bridge/ledger-bridge.js serve`.
+2. Open Ledger → **Settings** → **Telegram daily check-in**.
+3. Copy the bridge key from `~/.hermes/finance-bridge/config.json` into **Bridge key**, then click **Test & sync**. The key is device-local and is not included in Ledger's household sync.
+4. Hermes queues a confirmed transaction with: `node bridge/ledger-bridge.js enqueue --date YYYY-MM-DD --desc "Merchant" --amount -12.34 --currency CAD --account "Cash" --category Dining`.
+
+Ledger also checks the queue whenever the app opens or returns to the foreground. It will not duplicate a queued transaction after an interrupted acknowledgement.
+
 ## Sync (optional, household devices)
 
 Off by default. When on, each device encrypts a full snapshot with a passphrase (LED1 / AES-GCM) and `GET`/`PUT`s that ciphertext to **`/api/sync` on this same origin**. The server stores bytes it cannot read. Connect never leaves the home-screen PWA — there is no OAuth redirect.
