@@ -16,6 +16,7 @@
     error: 'Sync problem',
     'needs-pass': 'Passphrase required',
     'needs-auth': 'Reconnect',
+    'needs-data': 'No transactions yet',
     'missing-household-token': 'Household token required',
     'missing-app-key': 'App key required',
     'sync-server-unavailable': 'Sync server unavailable',
@@ -39,6 +40,7 @@
     'dropbox-rate-limit': 'Dropbox asked Ledger to slow down. Wait about a minute, then tap Sync now.',
     'invalid-remote-file': 'The household snapshot is not a Ledger LED1 file. Disconnect, wipe only if you have a JSON export, then connect and sync from a device that still has the real ledger.',
     'sync-error': 'Use the status line above, fix that issue, then tap Sync now. Secrets are never shown here.',
+    'household-empty': 'This phone is linked, but the household copy has no transactions. On the computer that has your ledger, open Settings and tap Sync now. Then tap Sync now on this phone.',
   };
 
   function inferSyncIssue(state, detail) {
@@ -52,6 +54,7 @@
     if (state === 'auth-failure') return 'auth-failure';
     if (state === 'conflict') return 'dropbox-conflict';
     if (state === 'rate-limit') return 'dropbox-rate-limit';
+    if (state === 'needs-data') return 'household-empty';
     if (state === 'error') {
       const d = String(detail || '').toLowerCase();
       if (d.includes('passphrase')) return 'wrong-passphrase';

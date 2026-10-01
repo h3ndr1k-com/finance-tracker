@@ -461,18 +461,20 @@ async function doSync() {
       const mayUpload = typeof LedgerSyncIssues === 'undefined'
         ? !!(merged && merged.transactions && merged.transactions.length)
         : LedgerSyncIssues.shouldUploadHouseholdSnapshot(merged);
+      const txCount = (merged.transactions || []).length;
+      const countDetail = txCount
+        ? `Household copy has ${txCount} transaction${txCount === 1 ? '' : 's'} on this device`
+        : 'Household copy has 0 transactions — on the computer that has your ledger, open Settings and tap Sync now, then Sync now here';
       if (!mayUpload) {
         const m = await getMeta(); m.lastSync = Date.now(); await saveMeta();
-        setStatus('ok', remote
-          ? ''
-          : 'Household is empty — tap Sync now on the computer that has the transactions');
+        setStatus(txCount ? 'ok' : 'needs-data', countDetail, txCount ? null : 'household-empty');
         if (typeof renderAll === 'function') renderAll();
         return;
       }
       try {
         const rev = await uploadRemote(merged, remote ? remote.rev : null);
         const m = await getMeta(); m.remoteRev = rev; m.lastSync = Date.now(); await saveMeta();
-        setStatus('ok');
+        setStatus('ok', countDetail);
         if (typeof renderAll === 'function') renderAll();
         return;
       } catch (e) {
@@ -625,6 +627,40 @@ async function getServiceWorkerDiagnostics() {
   };
 }
 
+function relTime(ms) {
+  if (!ms) return 'never';
+  const s = Math.round((Date.now() - ms) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+async function probeHouseholdApi(token) {
+  if (!token) return 'Not checked (no token on this device yet)';
+  try {
+    const r = await fetch(HOUSEHOLD_SYNC_URL, {
+      method: 'GET',
+      headers: householdHeaders(token, { Accept: 'application/octet-stream' }),
+      cache: 'no-store',
+    });
+    if (r.status === 200) {
+      const len = r.headers.get('content-length');
+      return len === '0' || !len
+        ? 'Reachable · household snapshot is empty — run Sync now on the device that has your data first'
+        : 'Reachable · encrypted snapshot is on the server';
+    }
+    if (r.status === 404 || r.status === 204) {
+      return 'Reachable · no snapshot yet — on your computer, Connect household, set passphrase, tap Sync now, then Sync now here';
+    }
+    if (r.status === 503) return 'Host missing HOUSEHOLD_SYNC_TOKEN or blob store — fix Vercel env and redeploy';
+    if (r.status === 401 || r.status === 403) return 'Token rejected — paste the same household token as on your other devices';
+    return `Unexpected response ${r.status} from /api/sync`;
+  } catch {
+    return 'Cannot reach /api/sync — use the same https production URL on phone and desktop (not a local file or preview URL unless that deploy is configured)';
+  }
+}
+
 async function renderSyncPanel() {
   const el = typeof $ === 'function' ? $('#syncPanel') : null;
   if (!el) return;
@@ -634,6 +670,7 @@ async function renderSyncPanel() {
   const st = getStatus();
   const m = await getMeta();
   const diag = await getSyncDiagnostics();
+  const apiProbe = await probeHouseholdApi(cfg.householdToken);
   const connected = isSyncLinked(cfg);
   const household = isHouseholdLinked(cfg);
   const needsPassphrase = connected && !hasPassphrase();
@@ -643,14 +680,15 @@ async function renderSyncPanel() {
     'missing-app-key': 'Household token required', 'redirect-mismatch': 'Redirect URI mismatch',
     'auth-failure': 'Sign-in failed', conflict: 'Sync conflict', 'rate-limit': 'Sync rate limit',
   };
-  const issue = st.issue || (!diag.householdConfigured && !diag.dropboxConnected ? 'missing-household-token' : null);
-  const nextAction = typeof LedgerSyncIssues !== 'undefined'
+  const issue = st.issue || (!household ? 'missing-household-token' : null);
+  const readyCopy = 'This phone is linked. If balances are still empty, open Ledger on the computer that has the data and tap Sync now, then tap Sync now here.';
+  const nextAction = issue && typeof LedgerSyncIssues !== 'undefined'
     ? LedgerSyncIssues.syncIssueAction(issue, diag)
-    : (st.detail || 'Paste the household token, connect, then set the shared passphrase on each device.');
+    : (st.detail || (connected ? readyCopy : 'Paste the household token, tap Connect household, then set the shared passphrase.'));
   const sw = diag.serviceWorker;
   const swLine = !sw ? 'Unavailable' : !sw.supported ? 'Not supported in this browser'
     : `${sw.controller ? 'Controlling this tab' : 'Not controlling yet'} · cache ${esc(sw.cacheVersion || '?')}${sw.update !== 'none' ? ` · update ${esc(sw.update)}` : ''}`;
-  const problemStates = ['error', 'needs-auth', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'missing-household-token', 'conflict', 'rate-limit'];
+  const problemStates = ['error', 'needs-auth', 'needs-data', 'redirect-mismatch', 'auth-failure', 'missing-app-key', 'missing-household-token', 'conflict', 'rate-limit'];
   const busLabel = household ? 'Household API (this site)' : connected ? 'Dropbox (legacy)' : 'Not connected';
   el.innerHTML = `
     <div class="formrow" style="margin-top:10px"><label>Status</label>
@@ -665,14 +703,16 @@ async function renderSyncPanel() {
         <dt>Sync bus</dt><dd>${esc(busLabel)}</dd>
         <dt>Passphrase</dt><dd>${hasPassphrase() ? 'Ready on this device' : 'Not entered on this device'}</dd>
         <dt>Last successful sync</dt><dd class="num">${esc(m.lastSync ? new Date(m.lastSync).toLocaleString() : 'Never')}</dd>
+        <dt>Household API</dt><dd>${esc(apiProbe)}</dd>
+        <dt>This URL</dt><dd class="num">${esc(typeof location !== 'undefined' ? location.origin + location.pathname : '')}</dd>
       </dl>
       <div class="sync-next"><strong>Next step:</strong> ${esc(nextAction)}</div>
     </section>
-    ${!connected ? `
-      <div class="formrow"><label>Household token</label><input id="syHouseholdToken" type="password" value="" autocomplete="off" placeholder="shared with every device"></div>
-      <div class="sub">Same token on Hendrik’s phone, desktop, and the other phone. It stays on this device. There is no Dropbox or Google sign-in — Connect never leaves this app.</div>
-      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect household</button></div>`
-    : `
+    ${!household ? `
+      <div class="sync-recovery" role="status"><strong>Household token is not saved on this computer.</strong><p>${connected ? 'Sync now is still talking to the old Dropbox link, so pasting the token into the passphrase box does not register it. ' : ''}Paste the household token below and tap Connect household.</p></div>
+      <div class="formrow"><label for="syHouseholdToken">Household token</label><input id="syHouseholdToken" type="password" value="" autocomplete="off" placeholder="shared with every device"></div>
+      <div class="formrow" style="justify-content:flex-end"><button class="primary sm" id="syConnect">Connect household</button></div>` : ''}
+    ${connected ? `
       ${needsPassphrase ? `<div class="sync-recovery" role="status"><strong>This device is linked — one more step.</strong><p>Enter the same encryption passphrase used on the other devices. The server only stores ciphertext, so the token alone cannot start syncing.</p></div>` : ''}
       <div class="formrow"><label for="syPass">Passphrase</label><input type="password" id="syPass" autocomplete="current-password" placeholder="${hasPassphrase() ? 'set on this device' : 'same as the other devices'}">
         <label style="min-width:auto"><input type="checkbox" id="syRemember" style="flex:none" ${cfg.rememberPass ? 'checked' : ''}> remember on this device</label>
@@ -680,18 +720,19 @@ async function renderSyncPanel() {
       <div class="sub">The passphrase is needed after a reconnect unless you choose to remember it on this device. If you both forget it, the household copy is unrecoverable — keep a JSON export.</div>
       <div class="formrow" style="justify-content:flex-end; margin-top:10px">
         <button class="ghost sm danger" id="syDisconnect">Disconnect</button>
-        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>`}`;
+        <button class="primary sm" id="sySync" ${hasPassphrase() ? '' : 'disabled'}>Sync now</button></div>` : ''}`;
 
-  if (!connected) {
+  if (!household) {
     $('#syConnect').onclick = async () => {
       const typed = $('#syHouseholdToken').value.trim();
-      if (!typed) { toast('Paste the household token first'); return; }
+      if (!typed) { toast('Paste the household token in the Household token box, not the passphrase box'); return; }
       try {
         await connectHousehold(typed);
-        toast('Household linked. Enter the shared passphrase to start syncing.');
-        syncFocusPassphrase = true;
-        setStatus('needs-pass', 'Enter the shared passphrase to sync');
+        toast('Household token saved. Enter the shared passphrase if it is not set, then Sync now.');
+        syncFocusPassphrase = !hasPassphrase();
+        if (!hasPassphrase()) setStatus('needs-pass', 'Enter the shared passphrase to sync');
         renderSyncPanel();
+        if (hasPassphrase()) syncNow();
       } catch (e) {
         const classified = typeof LedgerSyncIssues !== 'undefined'
           ? LedgerSyncIssues.classifySyncFailure(e, navigator.onLine)
@@ -705,7 +746,8 @@ async function renderSyncPanel() {
         }
       }
     };
-  } else {
+  }
+  if (connected) {
     $('#sySetPass').onclick = async () => {
       const p = $('#syPass').value;
       if (p.length < 8) { toast('Use at least 8 characters'); return; }
