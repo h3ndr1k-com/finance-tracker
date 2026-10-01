@@ -56,6 +56,10 @@ test('HTTP bridge rejects other origins and invalid keys, then acknowledges only
   assert.equal(pending.status, 200);
   assert.deepEqual((await pending.json()).items.map((item) => item.id), [first.id, second.id]);
 
+  const pair = await request(base, '/v1/pair', { method: 'POST', headers: { 'content-type': 'application/json' } });
+  assert.equal(pair.status, 200);
+  assert.equal((await pair.json()).token, 'test-token');
+
   const ack = await request(base, '/v1/ack', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-ledger-bridge-key': 'test-token' },

@@ -33,9 +33,8 @@ Works on the deployed https URL too, as long as Ollama runs on the same machine 
 The Telegram routine is optional and stays on your Mac. At 8:30pm, Hermes asks what you spent. When you reply, Hermes adds only the transaction details you confirm to a local queue. Ledger pulls that queue from `http://127.0.0.1:8788`, writes the transactions to its own IndexedDB, then acknowledges them. The bridge has no public network listener and does not read your ledger, bank accounts, or household-sync passphrase.
 
 1. Start the local bridge: `node bridge/ledger-bridge.js serve`.
-2. Open Ledger → **Settings** → **Telegram daily check-in**.
-3. Copy the bridge key from `~/.hermes/finance-bridge/config.json` into **Bridge key**, then click **Test & sync**. The key is device-local and is not included in Ledger's household sync.
-4. Hermes queues a confirmed transaction with: `node bridge/ledger-bridge.js enqueue --date YYYY-MM-DD --desc "Merchant" --amount -12.34 --currency CAD --account "Cash" --category Dining`.
+2. Open Ledger → **Settings** → **Telegram daily check-in** → **Pair this Ledger**. Pairing happens over loopback only; no key is shown or copied.
+3. Hermes queues a confirmed transaction with: `node bridge/ledger-bridge.js enqueue --date YYYY-MM-DD --desc "Merchant" --amount -12.34 --currency CAD --account "Cash" --category Dining`.
 
 Ledger also checks the queue whenever the app opens or returns to the foreground. It will not duplicate a queued transaction after an interrupted acknowledgement.
 

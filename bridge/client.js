@@ -59,6 +59,17 @@
     return { applied, skipped };
   }
 
+  async function pairLedgerBridge() {
+    const base = String(S?.settings?.bridgeUrl || DEFAULT_URL).replace(/\/+$/, '');
+    const response = await fetch(base + '/v1/pair', { method: 'POST' });
+    if (!response.ok) throw new Error(`Bridge HTTP ${response.status}`);
+    const payload = await response.json();
+    if (!payload?.token) throw new Error('Bridge pairing failed');
+    S.settings.bridgeToken = payload.token;
+    await DB.kvSet('settings', S.settings);
+    return pullLedgerBridge();
+  }
+
   async function testLedgerBridge() {
     await bridgeFetch('/v1/health');
     return pullLedgerBridge();
@@ -70,5 +81,6 @@
   };
   global.pullLedgerBridge = pullLedgerBridge;
   global.testLedgerBridge = testLedgerBridge;
+  global.pairLedgerBridge = pairLedgerBridge;
   if (typeof module !== 'undefined' && module.exports) module.exports = { normalizeQueueItem };
 })(globalThis);

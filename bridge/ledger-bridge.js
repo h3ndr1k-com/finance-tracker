@@ -114,8 +114,11 @@ function createBridgeServer({ dir = DEFAULT_DIR, token, origins = DEFAULT_ORIGIN
       res.writeHead(204, { 'access-control-allow-origin': origin, vary: 'Origin', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type, x-ledger-bridge-key', 'access-control-max-age': '600' });
       return res.end();
     }
-    if (req.headers['x-ledger-bridge-key'] !== expectedToken) return send(res, 401, { error: 'Invalid bridge key' }, origin);
     const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
+    // Pairing stays loopback-only and is available only to Ledger's allowed origin.
+    // It avoids putting the generated key into chat or a command line.
+    if (req.method === 'POST' && pathname === '/v1/pair') return send(res, 200, { token: expectedToken }, origin);
+    if (req.headers['x-ledger-bridge-key'] !== expectedToken) return send(res, 401, { error: 'Invalid bridge key' }, origin);
     if (req.method === 'GET' && pathname === '/v1/health') return send(res, 200, { ok: true }, origin);
     if (req.method === 'GET' && pathname === '/v1/transactions') return send(res, 200, { items: store.pending() }, origin);
     if (req.method === 'POST' && pathname === '/v1/ack') {
