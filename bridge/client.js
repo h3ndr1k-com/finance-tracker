@@ -76,7 +76,7 @@
   }
 
   global.initLedgerBridge = function initLedgerBridge() {
-    pullLedgerBridge().catch(() => {});
+    (S?.settings?.bridgeToken ? pullLedgerBridge() : pairLedgerBridge()).catch(() => {});
     document.addEventListener('visibilitychange', () => { if (!document.hidden) pullLedgerBridge().catch(() => {}); });
   };
   global.pullLedgerBridge = pullLedgerBridge;
