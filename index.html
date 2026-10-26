@@ -3176,6 +3176,7 @@ if ('serviceWorker' in navigator) {
 if (navigator.storage?.persist) navigator.storage.persisted().then(p => p || navigator.storage.persist()).then(p => console.log('storage persisted:', p));
 const tesScript = document.createElement('script'); tesScript.src = './vendor/tesseract.min.js'; document.head.appendChild(tesScript);
 </script>
+<script src="./lib/bridge-inbox-payload.js"></script>
 <script src="./sync.js"></script>
 <script src="./bridge/client.js"></script>
 <script>

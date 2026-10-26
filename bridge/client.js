@@ -16,7 +16,8 @@
     }
     return {
       id: `bridge:${id}`, date, desc, amount: Math.round(amount * 100) / 100, currency, account, category: category || 'Other',
-      business: String(item?.business || '').trim(), transfer: Boolean(item?.transfer), source: 'telegram',
+      business: String(item?.business || '').trim(), transfer: Boolean(item?.transfer),
+      source: String(item?.source || 'telegram').trim() || 'telegram',
     };
   }
 

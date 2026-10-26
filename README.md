@@ -38,6 +38,8 @@ The Telegram routine is optional and stays on your Mac. At 8:30pm, Hermes asks w
 
 Ledger also checks the queue whenever the app opens or returns to the foreground. It will not duplicate a queued transaction after an interrupted acknowledgement.
 
+**iPhone without opening Ledger on the Mac:** a Mac background job encrypts the same queue into `/api/bridge-inbox` (LED1, same household token and passphrase as sync). Phones consume that inbox during normal sync. Setup: [`bridge/README-bridge-inbox.md`](bridge/README-bridge-inbox.md). Tag non-Telegram sources with `enqueue … --source grokbot`.
+
 ## Sync (optional, household devices)
 
 Off by default. When on, each device encrypts a full snapshot with a passphrase (LED1 / AES-GCM) and `GET`/`PUT`s that ciphertext to **`/api/sync` on this same origin**. The server stores bytes it cannot read. Connect never leaves the home-screen PWA — there is no OAuth redirect.

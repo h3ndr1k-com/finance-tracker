@@ -38,6 +38,14 @@ test('enqueue persists a validated Telegram transaction and pending returns it o
   assert.throws(() => store.enqueue({ date: 'bad-date', desc: '', amount: 0 }), /date|description|amount/i);
 });
 
+test('enqueue accepts --source grokbot via item.source', () => {
+  const store = createBridgeStore(tempDir());
+  const item = store.enqueue({
+    date: '2026-10-24', desc: 'Puppet show', amount: -10, currency: 'CAD', account: 'Cash', category: 'Fun', source: 'grokbot',
+  });
+  assert.equal(item.source, 'grokbot');
+});
+
 test('HTTP bridge rejects other origins and invalid keys, then acknowledges only the requested item', async (t) => {
   const dir = tempDir();
   const store = createBridgeStore(dir);
