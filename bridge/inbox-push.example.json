@@ -1,0 +1,8 @@
+{
+  "syncOrigin": "https://ledger-tracker-psi.vercel.app",
+  "inboxUrl": "https://ledger-tracker-psi.vercel.app/api/bridge-inbox",
+  "snapshotUrl": "https://ledger-tracker-psi.vercel.app/api/sync",
+  "householdTokenFile": "~/.hermes/finance-bridge/household-token",
+  "passphraseFile": "~/.hermes/finance-bridge/sync-passphrase",
+  "saltB64File": "~/.hermes/finance-bridge/sync-salt.b64"
+}

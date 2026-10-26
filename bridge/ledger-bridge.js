@@ -44,17 +44,26 @@ function normalizeTransaction(raw) {
   return { date, desc, amount: Math.round(amount * 100) / 100, currency, account, category: category || 'Other', business, transfer: Boolean(raw?.transfer) };
 }
 
-function createBridgeStore(dir = DEFAULT_DIR) {
+function createBridgeStore(dir = DEFAULT_DIR, defaultSource = 'telegram') {
   const queueFile = path.join(dir, 'queue.json');
   const load = () => readJson(queueFile, { version: 1, items: [] });
   const save = (doc) => writeJson(queueFile, doc);
+  const normalizeSource = (raw, override) => {
+    const value = String(raw?.source || override || defaultSource || 'telegram').trim().slice(0, 40);
+    return value || 'telegram';
+  };
   return {
     dir,
     queueFile,
-    enqueue(raw) {
+    enqueue(raw, sourceOverride) {
       const transaction = normalizeTransaction(raw);
       const doc = load();
-      const item = { id: crypto.randomUUID(), ...transaction, source: 'telegram', createdAt: new Date().toISOString() };
+      const item = {
+        id: crypto.randomUUID(),
+        ...transaction,
+        source: normalizeSource(raw, sourceOverride),
+        createdAt: new Date().toISOString(),
+      };
       doc.items.push(item);
       save(doc);
       return item;
@@ -140,11 +149,22 @@ async function main() {
     return;
   }
   if (command === 'enqueue') {
-    const item = createBridgeStore(dir).enqueue({ date: opts.date, desc: opts.desc, amount: opts.amount, currency: opts.currency, account: opts.account, category: opts.category, business: opts.business, transfer: opts.transfer === 'true' });
-    console.log(JSON.stringify({ queued: item.id, desc: item.desc, amount: item.amount, currency: item.currency }));
+    const source = opts.source || readJson(path.join(dir, 'config.json'), {})?.defaultSource || 'telegram';
+    const item = createBridgeStore(dir).enqueue({
+      date: opts.date,
+      desc: opts.desc,
+      amount: opts.amount,
+      currency: opts.currency,
+      account: opts.account,
+      category: opts.category,
+      business: opts.business,
+      transfer: opts.transfer === 'true',
+      source,
+    });
+    console.log(JSON.stringify({ queued: item.id, desc: item.desc, amount: item.amount, currency: item.currency, source: item.source }));
     return;
   }
-  console.error('Usage: ledger-bridge.js serve [--port 8788] | enqueue --date YYYY-MM-DD --desc TEXT --amount SIGNED --currency CAD --account NAME --category NAME');
+  console.error('Usage: ledger-bridge.js serve [--port 8788] | enqueue --date YYYY-MM-DD --desc TEXT --amount SIGNED --currency CAD --account NAME --category NAME [--source telegram|grokbot]');
   process.exitCode = 2;
 }
 if (require.main === module) main().catch((error) => { console.error(error.message); process.exitCode = 1; });

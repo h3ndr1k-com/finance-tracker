@@ -9,6 +9,7 @@ const SYNC_CFG_KEY = 'syncCfg';   // never synced: holds tokens + salt
 const SYNC_PASS_KEY = 'syncPass';
 const SYNC_BOOTSTRAP_URL = './sync-config.json';
 const HOUSEHOLD_SYNC_URL = './api/sync';
+const BRIDGE_INBOX_URL = './api/bridge-inbox';
 const REMOTE_PATH = '/ledger.bin';
 const PBKDF2_ITER = 600000;
 
@@ -316,6 +317,52 @@ async function downloadHousehold() {
   const snap = await decryptSnapshot(await r.arrayBuffer());
   return { snap, rev: householdRev(r) };
 }
+async function downloadBridgeInbox() {
+  const cfg = await getSyncCfg();
+  if (!isHouseholdLinked(cfg)) return null;
+  const r = await fetch(BRIDGE_INBOX_URL, {
+    method: 'GET',
+    headers: householdHeaders(cfg.householdToken, { Accept: 'application/octet-stream' }),
+    cache: 'no-store',
+  });
+  if (r.status === 404 || r.status === 204) return null;
+  if (r.status === 401 || r.status === 403) throw new Error('NEEDS_RECONNECT');
+  if (r.status === 503) throw new Error('SYNC_SERVER_UNAVAILABLE');
+  if (r.status === 429) { const e = new Error('RATE_LIMIT'); e.code = 'RATE_LIMIT'; e.retryAfter = +(r.headers.get('Retry-After') || 5); throw e; }
+  if (!r.ok) throw new Error('Bridge inbox download failed: ' + r.status);
+  const raw = await decryptSnapshot(await r.arrayBuffer());
+  const doc = (typeof LedgerBridgeInbox !== 'undefined' && LedgerBridgeInbox.normalizeInbox)
+    ? LedgerBridgeInbox.normalizeInbox(raw)
+    : raw;
+  return { doc, rev: householdRev(r) };
+}
+async function uploadBridgeInbox(doc, rev) {
+  const cfg = await getSyncCfg();
+  const bytes = await encryptSnapshot(doc);
+  const headers = householdHeaders(cfg.householdToken, { 'Content-Type': 'application/octet-stream' });
+  if (rev) headers['If-Match'] = rev;
+  const r = await fetch(BRIDGE_INBOX_URL, { method: 'PUT', headers, body: bytes, cache: 'no-store' });
+  if (r.status === 409 || r.status === 412) { const e = new Error('CONFLICT'); e.code = 'CONFLICT'; throw e; }
+  if (r.status === 401 || r.status === 403) throw new Error('NEEDS_RECONNECT');
+  if (r.status === 503) throw new Error('SYNC_SERVER_UNAVAILABLE');
+  if (r.status === 429) { const e = new Error('RATE_LIMIT'); e.code = 'RATE_LIMIT'; e.retryAfter = +(r.headers.get('Retry-After') || 5); throw e; }
+  if (!r.ok) throw new Error('Bridge inbox upload failed: ' + r.status + ' ' + (await r.text()).slice(0, 120));
+  return householdRev(r) || (await r.json().catch(() => ({}))).rev;
+}
+function consumeBridgeInboxIntoSnapshot(merged, inboxRemote) {
+  if (!inboxRemote || typeof LedgerBridgeInbox === 'undefined') {
+    return { snap: merged, ackQueueIds: [], inboxDoc: null };
+  }
+  const { snap, appliedQueueIds, skippedQueueIds } = LedgerBridgeInbox.applyInboxToSnapshot(
+    merged,
+    inboxRemote.doc,
+    { baseCurrency: merged.settings?.base || 'CAD' },
+  );
+  const ackQueueIds = [...appliedQueueIds, ...skippedQueueIds];
+  if (!ackQueueIds.length) return { snap: merged, ackQueueIds: [], inboxDoc: null };
+  const inboxDoc = LedgerBridgeInbox.removeQueueIdsFromInbox(inboxRemote.doc, ackQueueIds);
+  return { snap, ackQueueIds, inboxDoc };
+}
 async function uploadHousehold(snap, rev) {
   const cfg = await getSyncCfg();
   const bytes = await encryptSnapshot(snap);
@@ -455,9 +502,23 @@ async function doSync() {
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
       const remote = await downloadRemote();
+      const inboxRemote = await downloadBridgeInbox();
       const local = await buildSnapshot();
-      const merged = remote ? mergeSnapshots(local, remote.snap) : local;
+      let merged = remote ? mergeSnapshots(local, remote.snap) : local;
+      const inboxConsume = consumeBridgeInboxIntoSnapshot(merged, inboxRemote);
+      merged = inboxConsume.snap;
       await applySnapshot(merged, { forceRender: true });
+      if (inboxConsume.inboxDoc) {
+        try {
+          await uploadBridgeInbox(inboxConsume.inboxDoc, inboxRemote.rev);
+        } catch (e) {
+          if (e.code === 'CONFLICT' || e.code === 'RATE_LIMIT') {
+            if (e.code === 'RATE_LIMIT') await new Promise(r => setTimeout(r, e.retryAfter * 1000));
+            continue;
+          }
+          throw e;
+        }
+      }
       const mayUpload = typeof LedgerSyncIssues === 'undefined'
         ? !!(merged && merged.transactions && merged.transactions.length)
         : LedgerSyncIssues.shouldUploadHouseholdSnapshot(merged);

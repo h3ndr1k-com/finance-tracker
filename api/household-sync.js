@@ -8,6 +8,7 @@ const path = require('path');
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const BLOB_PATH = 'household/ledger.bin';
+const DEFAULT_INBOX_BLOB_PATH = 'household/bridge-inbox.bin';
 
 function isLed1(buf) {
   return Buffer.isBuffer(buf) && buf.length >= 34
@@ -49,8 +50,8 @@ function send(res, status, body, headers = {}) {
   res.end(payload);
 }
 
-function fileStore(dir) {
-  const file = path.join(dir, 'ledger.bin');
+function fileStore(dir, filename = 'ledger.bin') {
+  const file = path.join(dir, filename);
   return {
     async read() {
       try { return await fs.promises.readFile(file); }
@@ -76,10 +77,15 @@ function isMissingBlobError(e) {
   return /not found|does not exist|no such (blob|file|key|object)/i.test(msg);
 }
 
-function pickHouseholdBlob(blobs) {
+function pickHouseholdBlob(blobs, blobPath = BLOB_PATH) {
+  const base = String(blobPath || BLOB_PATH);
+  const legacyLedger = /^household\/ledger(\.|-)/;
   const rows = (blobs || []).filter((b) => {
     const p = String(b && b.pathname || '');
-    return p === BLOB_PATH || /^household\/ledger(\.|-)/.test(p);
+    if (p === base) return true;
+    if (base === BLOB_PATH && legacyLedger.test(p)) return true;
+    if (base !== BLOB_PATH && /^household\/bridge-inbox(\.|-)/.test(p)) return true;
+    return false;
   });
   if (!rows.length) return null;
   rows.sort((a, b) => {
@@ -108,14 +114,16 @@ async function readSnapshot(store) {
   }
 }
 
-function blobStore(token) {
+function blobStore(token, blobPath = BLOB_PATH) {
+  const pathname = String(blobPath || BLOB_PATH);
+  const listPrefix = pathname.startsWith('household/') ? 'household/' : pathname.replace(/\/[^/]+$/, '/') || 'household/';
   return {
     async read() {
       const blob = require('@vercel/blob');
       const opts = { token, access: 'private', useCache: false };
       try {
         if (typeof blob.get === 'function') {
-          const direct = await blob.get(BLOB_PATH, opts);
+          const direct = await blob.get(pathname, opts);
           if (direct && direct.stream) {
             const buf = await streamToBuffer(direct.stream);
             if (buf && buf.length) return buf;
@@ -127,8 +135,8 @@ function blobStore(token) {
       // put() may still add a random suffix; head(pathname) then 404s even
       // after PUT 200. list() sees household/ledger-*.bin — pick the largest
       // so an empty phone upload cannot hide a populated snapshot.
-      const listed = await blob.list({ prefix: 'household/', token });
-      const chosen = pickHouseholdBlob(listed && listed.blobs);
+      const listed = await blob.list({ prefix: listPrefix, token });
+      const chosen = pickHouseholdBlob(listed && listed.blobs, pathname);
       if (!chosen) return null;
       if (typeof blob.get === 'function') {
         const via = await blob.get(chosen.url || chosen.pathname, opts);
@@ -149,7 +157,7 @@ function blobStore(token) {
     },
     async write(buf) {
       const blob = require('@vercel/blob');
-      await blob.put(BLOB_PATH, buf, {
+      await blob.put(pathname, buf, {
         access: 'private',
         addRandomSuffix: false,
         allowOverwrite: true,
@@ -161,11 +169,15 @@ function blobStore(token) {
 }
 
 function createStore(opts = {}) {
-  if (opts.dataDir) return fileStore(opts.dataDir);
+  const blobPath = opts.blobPath || BLOB_PATH;
+  const inboxName = blobPath === DEFAULT_INBOX_BLOB_PATH ? 'bridge-inbox.bin' : 'ledger.bin';
+  if (opts.dataDir) return fileStore(opts.dataDir, opts.fileName || inboxName);
   if (opts.blobToken || process.env.BLOB_READ_WRITE_TOKEN) {
-    return blobStore(opts.blobToken || process.env.BLOB_READ_WRITE_TOKEN);
+    return blobStore(opts.blobToken || process.env.BLOB_READ_WRITE_TOKEN, blobPath);
   }
-  if (process.env.LEDGER_SYNC_DATA_DIR) return fileStore(process.env.LEDGER_SYNC_DATA_DIR);
+  if (process.env.LEDGER_SYNC_DATA_DIR) {
+    return fileStore(process.env.LEDGER_SYNC_DATA_DIR, opts.fileName || inboxName);
+  }
   return null;
 }
 
@@ -192,7 +204,7 @@ function readRawBody(req) {
   });
 }
 
-async function handleHouseholdSync(req, res, opts = {}) {
+async function handleHouseholdBlobSync(req, res, opts = {}) {
   const expected = opts.token != null ? opts.token : process.env.HOUSEHOLD_SYNC_TOKEN;
   if (!expected) {
     send(res, 503, { error: 'SYNC_SERVER_UNAVAILABLE', message: 'HOUSEHOLD_SYNC_TOKEN is not set' });
@@ -203,7 +215,7 @@ async function handleHouseholdSync(req, res, opts = {}) {
     return;
   }
 
-  const store = opts.store || createStore(opts);
+  const store = opts.store || createStore({ ...opts, blobPath: opts.blobPath || BLOB_PATH });
   if (!store) {
     send(res, 503, { error: 'SYNC_SERVER_UNAVAILABLE', message: 'No snapshot store configured' });
     return;
@@ -256,8 +268,22 @@ async function handleHouseholdSync(req, res, opts = {}) {
   send(res, 405, { error: 'METHOD_NOT_ALLOWED' });
 }
 
+async function handleHouseholdSync(req, res, opts = {}) {
+  return handleHouseholdBlobSync(req, res, { ...opts, blobPath: opts.blobPath || BLOB_PATH });
+}
+
+async function handleBridgeInboxSync(req, res, opts = {}) {
+  return handleHouseholdBlobSync(req, res, {
+    ...opts,
+    blobPath: opts.blobPath || DEFAULT_INBOX_BLOB_PATH,
+    fileName: opts.fileName || 'bridge-inbox.bin',
+  });
+}
+
 module.exports = {
   handleHouseholdSync,
+  handleHouseholdBlobSync,
+  handleBridgeInboxSync,
   createStore,
   fileStore,
   isLed1,
@@ -265,4 +291,5 @@ module.exports = {
   isMissingBlobError,
   pickHouseholdBlob,
   BLOB_PATH,
+  DEFAULT_INBOX_BLOB_PATH,
 };
