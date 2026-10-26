@@ -66,7 +66,7 @@ Two people editing *the same transaction* within one sync window: the later edit
 
 **Not synced:** receipt images (the transaction and its data sync; the photo stays on the device that scanned it), and your light/dark theme (deliberately per-device). Sync needs IndexedDB, so it's unavailable in private-browsing modes.
 
-**Wipe all data** or **Disconnect** clears this device only. The other devices and the household snapshot stay.
+**Wipe all data** clears this device only. It does not upload deletions, so the other devices and the household snapshot stay. If sync is still connected, the next sync brings that household copy back; disconnect first when this device should stay empty. **Disconnect** also leaves the household snapshot alone.
 
 ## Design handoff
 

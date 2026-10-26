@@ -16,9 +16,43 @@ const DEFAULT_ORIGINS = ['https://ledger-tracker-psi.vercel.app'];
 const MAX_BODY_BYTES = 64 * 1024;
 
 function ensureDir(dir) { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); }
+function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+/* Only a missing file is an empty document. A corrupt or unreadable queue must
+   throw, or the next save would replace recoverable transactions with []. */
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-  catch { return fallback; }
+  catch (error) {
+    if (error && error.code === 'ENOENT') return fallback;
+    if (error instanceof SyntaxError) {
+      throw Object.assign(new Error(`Queue file is corrupt: ${path.basename(file)}`), { code: 'EBADMSG', cause: error });
+    }
+    throw error;
+  }
+}
+function withQueueLock(dir, fn) {
+  ensureDir(dir);
+  const lockDir = path.join(dir, '.queue.lock');
+  const started = Date.now();
+  for (;;) {
+    try {
+      fs.mkdirSync(lockDir, { mode: 0o700 });
+      break;
+    } catch (error) {
+      if (!error || error.code !== 'EEXIST') throw error;
+      let stale = false;
+      try {
+        stale = Date.now() - fs.statSync(lockDir).mtimeMs > 10000;
+      } catch (err) {
+        if (err && err.code === 'ENOENT') continue;
+        throw err;
+      }
+      if (stale) { fs.rmSync(lockDir, { recursive: true, force: true }); continue; }
+      if (Date.now() - started > 8000) throw new Error('Queue lock timed out');
+      sleepMs(15);
+    }
+  }
+  try { return fn(); }
+  finally { fs.rmSync(lockDir, { recursive: true, force: true }); }
 }
 function writeJson(file, value) {
   ensureDir(path.dirname(file));
@@ -48,6 +82,12 @@ function createBridgeStore(dir = DEFAULT_DIR, defaultSource = 'telegram') {
   const queueFile = path.join(dir, 'queue.json');
   const load = () => readJson(queueFile, { version: 1, items: [] });
   const save = (doc) => writeJson(queueFile, doc);
+  const update = (fn) => withQueueLock(dir, () => {
+    const doc = load();
+    const result = fn(doc);
+    save(doc);
+    return result;
+  });
   const normalizeSource = (raw, override) => {
     const value = String(raw?.source || override || defaultSource || 'telegram').trim().slice(0, 40);
     return value || 'telegram';
@@ -57,27 +97,25 @@ function createBridgeStore(dir = DEFAULT_DIR, defaultSource = 'telegram') {
     queueFile,
     enqueue(raw, sourceOverride) {
       const transaction = normalizeTransaction(raw);
-      const doc = load();
       const item = {
         id: crypto.randomUUID(),
         ...transaction,
         source: normalizeSource(raw, sourceOverride),
         createdAt: new Date().toISOString(),
       };
-      doc.items.push(item);
-      save(doc);
-      return item;
+      return update((doc) => { doc.items.push(item); return item; });
     },
-    pending() { return load().items.filter((item) => !item.acknowledgedAt); },
+    pending() { return withQueueLock(dir, () => load().items.filter((item) => !item.acknowledgedAt)); },
     acknowledge(ids) {
       const wanted = new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string'));
       if (!wanted.size) return [];
-      const doc = load(); const now = new Date().toISOString(); const done = [];
-      for (const item of doc.items) {
-        if (wanted.has(item.id) && !item.acknowledgedAt) { item.acknowledgedAt = now; done.push(item.id); }
-      }
-      save(doc);
-      return done;
+      return update((doc) => {
+        const now = new Date().toISOString(); const done = [];
+        for (const item of doc.items) {
+          if (wanted.has(item.id) && !item.acknowledgedAt) { item.acknowledgedAt = now; done.push(item.id); }
+        }
+        return done;
+      });
     },
   };
 }
@@ -129,7 +167,10 @@ function createBridgeServer({ dir = DEFAULT_DIR, token, origins = DEFAULT_ORIGIN
     if (req.method === 'POST' && pathname === '/v1/pair') return send(res, 200, { token: expectedToken }, origin);
     if (req.headers['x-ledger-bridge-key'] !== expectedToken) return send(res, 401, { error: 'Invalid bridge key' }, origin);
     if (req.method === 'GET' && pathname === '/v1/health') return send(res, 200, { ok: true }, origin);
-    if (req.method === 'GET' && pathname === '/v1/transactions') return send(res, 200, { items: store.pending() }, origin);
+    if (req.method === 'GET' && pathname === '/v1/transactions') {
+      try { return send(res, 200, { items: store.pending() }, origin); }
+      catch (error) { return send(res, 500, { error: error.message }, origin); }
+    }
     if (req.method === 'POST' && pathname === '/v1/ack') {
       try { return send(res, 200, { acknowledged: store.acknowledge((await readBody(req)).ids) }, origin); }
       catch (error) { return send(res, 400, { error: error.message }, origin); }

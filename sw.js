@@ -1,7 +1,7 @@
 importScripts('./reminders.js');
 
-const CACHE = 'ledger-v39';
-const APP_VIEWPORT = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+const CACHE = 'ledger-v40';
+const APP_VIEWPORT = 'width=device-width, initial-scale=1, viewport-fit=cover';
 
 function applyAppFeelHtml(html) {
   let out = String(html);
@@ -33,6 +33,7 @@ const ASSETS = [
   './bridge/client.js',
   './sync-issues.js',
   './reminders.js',
+  './lib/ledger-backup.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

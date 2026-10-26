@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { handleHouseholdSync, isLed1, revOf, isMissingBlobError, pickHouseholdBlob } = require('../api/household-sync');
+const { handleHouseholdSync, isLed1, revOf, isMissingBlobError, pickHouseholdBlob, fileStore, createStore, BLOB_PATH } = require('../api/household-sync');
 
 function fakeLed1(fill = 7) {
   const buf = Buffer.alloc(48);
@@ -137,4 +137,71 @@ test('unconfigured server is 503 without leaking the expected token', async () =
   await handleHouseholdSync(req, res, { token: '', dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-sync-')) });
   assert.equal(res.status, 503);
   assert.doesNotMatch(String(res.body), /ledger_/);
+});
+
+test('simultaneous If-Match writes on the file store: one wins and the other conflicts', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-sync-'));
+  const store = fileStore(dir, 'ledger.bin', { pauseMs: 40 });
+  const first = fakeLed1(1);
+  const seeded = await call('PUT', { dir, store, headers: { authorization: 'Bearer secret-token' }, body: first });
+  assert.equal(seeded.res.status, 200);
+
+  const headers = { authorization: 'Bearer secret-token', 'if-match': revOf(first) };
+  const [left, right] = await Promise.all([
+    call('PUT', { dir, store, headers, body: fakeLed1(2) }),
+    call('PUT', { dir, store, headers, body: fakeLed1(3) }),
+  ]);
+  const statuses = [left.res.status, right.res.status].sort();
+  assert.deepEqual(statuses, [200, 409]);
+  const winner = left.res.status === 200 ? fakeLed1(2) : fakeLed1(3);
+  const got = await call('GET', { dir, store, headers: { authorization: 'Bearer secret-token' } });
+  assert.equal(Buffer.compare(got.res.body, winner), 0);
+});
+
+test('simultaneous blob writes use etag compare-and-swap', async () => {
+  let current = null;
+  const puts = [];
+  const blobApi = {
+    async get() {
+      if (!current) {
+        const missing = new Error('The requested blob does not exist');
+        missing.name = 'BlobNotFoundError';
+        throw missing;
+      }
+      return { stream: current.buf, blob: { etag: current.etag, pathname: 'household/ledger.bin' } };
+    },
+    async list() { return { blobs: [] }; },
+    async put(_pathname, buf, opts) {
+      puts.push(opts);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      if (opts.allowOverwrite === false && current) {
+        const err = new Error('already exists');
+        err.statusCode = 409;
+        throw err;
+      }
+      if (opts.ifMatch && (!current || opts.ifMatch !== current.etag)) {
+        const err = new Error('precondition failed');
+        err.name = 'BlobPreconditionFailedError';
+        err.statusCode = 412;
+        throw err;
+      }
+      current = { buf: Buffer.from(buf), etag: `etag-${buf[5]}` };
+    },
+  };
+  const store = createStore({ blobToken: 'blob-token', blobApi, blobPath: BLOB_PATH });
+  const first = fakeLed1(4);
+  const seeded = await call('PUT', { store, headers: { authorization: 'Bearer secret-token' }, body: first });
+  assert.equal(seeded.res.status, 200);
+  assert.equal(puts[0].allowOverwrite, false);
+
+  const headers = { authorization: 'Bearer secret-token', 'if-match': revOf(first) };
+  const [left, right] = await Promise.all([
+    call('PUT', { store, headers, body: fakeLed1(5) }),
+    call('PUT', { store, headers, body: fakeLed1(6) }),
+  ]);
+  assert.deepEqual([left.res.status, right.res.status].sort(), [200, 409]);
+  assert.equal(puts.filter((opts) => opts.ifMatch === 'etag-4').length, 2);
+  const winner = left.res.status === 200 ? fakeLed1(5) : fakeLed1(6);
+  const got = await call('GET', { store, headers: { authorization: 'Bearer secret-token' } });
+  assert.equal(Buffer.compare(got.res.body, winner), 0);
 });

@@ -17,3 +17,9 @@ test('bridge client converts a queued Telegram item into Ledger transaction shap
 test('bridge client rejects malformed queue items before they reach the Ledger', () => {
   assert.throws(() => normalizeQueueItem({ id: 'x', date: 'nope', desc: '', amount: 0 }, 'CAD'), /invalid/i);
 });
+
+test('paired bridge failures have a persistent warning', () => {
+  const { bridgeStatusMessage } = require('../bridge/client');
+  assert.match(bridgeStatusMessage('pull-failed'), /queued on this Mac/i);
+  assert.equal(bridgeStatusMessage('other'), '');
+});

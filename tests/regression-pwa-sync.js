@@ -20,12 +20,11 @@ function assert(condition, message) {
     ? fs.readFileSync(path.join(root, 'app-feel.js'), 'utf8') : '';
   const appFeelCss = fs.existsSync(path.join(root, 'app-feel.css'))
     ? fs.readFileSync(path.join(root, 'app-feel.css'), 'utf8') : '';
-  const viewportLocked = (/maximum-scale=1/.test(indexSource) && /user-scalable=no/.test(indexSource))
-    || (/maximum-scale=1/.test(swSource) && /user-scalable=no/.test(swSource))
-    || (/maximum-scale=1/.test(appFeelJs) && /user-scalable=no/.test(appFeelJs));
-  assert(viewportLocked, 'viewport must lock pinch-zoom in HTML, SW rewrite, or app-feel.js');
-  assert(/viewport-fit=cover/.test(indexSource) || /viewport-fit=cover/.test(swSource) || /viewport-fit=cover/.test(appFeelJs), 'viewport must include safe-area cover');
-  assert(/gesturestart/.test(indexSource) || /gesturestart/.test(appFeelJs), 'iOS pinch gesture must be cancelled');
+  const viewportLocked = /user-scalable\s*=\s*no/i.test(indexSource + swSource + appFeelJs)
+    || /maximum-scale\s*=\s*1/i.test(indexSource + swSource + appFeelJs);
+  assert(!viewportLocked, 'pinch-zoom must stay available');
+  assert(/viewport-fit=cover/.test(indexSource) || /viewport-fit=cover/.test(swSource), 'viewport must include safe-area cover');
+  assert(!/gesturestart/.test(indexSource) && !/gesturestart/.test(appFeelJs), 'iOS pinch gesture must not be cancelled');
   assert(/overflow-x:\s*hidden/.test(indexSource) || /overflow-x:\s*hidden/.test(appFeelCss), 'horizontal overflow must be clipped');
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
   assert(manifest.display === 'standalone', 'PWA must install as standalone');
@@ -92,7 +91,7 @@ function assert(condition, message) {
   });
 
   const viewportMeta = await page.locator('meta[name="viewport"]').getAttribute('content');
-  assert(/maximum-scale=1/.test(viewportMeta || '') && /user-scalable=no/.test(viewportMeta || ''), 'Live viewport still allows pinch-zoom');
+  assert(!/maximum-scale\s*=\s*1/i.test(viewportMeta || '') && !/user-scalable\s*=\s*no/i.test(viewportMeta || ''), 'Live viewport must allow pinch-zoom');
   const layoutBleed = await page.evaluate(() => {
     const root = document.scrollingElement || document.documentElement;
     return {

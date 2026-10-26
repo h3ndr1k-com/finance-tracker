@@ -77,3 +77,64 @@ test('HTTP bridge rejects other origins and invalid keys, then acknowledges only
   assert.deepEqual((await ack.json()).acknowledged, [first.id]);
   assert.deepEqual(store.pending().map((item) => item.id), [second.id]);
 });
+
+test('a missing queue is empty, and a corrupt queue is left untouched', () => {
+  const missing = createBridgeStore(tempDir());
+  assert.deepEqual(missing.pending(), []);
+
+  const dir = tempDir();
+  const file = path.join(dir, 'queue.json');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(file, '{');
+  const store = createBridgeStore(dir);
+  assert.throws(() => store.pending(), /corrupt/i);
+  assert.throws(() => store.enqueue({ date: '2026-10-01', desc: 'Should not replace', amount: -1, currency: 'CAD', account: 'Cash', category: 'Other' }), /corrupt/i);
+  assert.equal(fs.readFileSync(file, 'utf8'), '{');
+});
+
+test('an unreadable queue is not replaced with an empty one', () => {
+  const dir = tempDir();
+  const store = createBridgeStore(dir);
+  store.enqueue({ date: '2026-10-01', desc: 'Keep me', amount: -3, currency: 'CAD', account: 'Cash', category: 'Other' });
+  fs.chmodSync(store.queueFile, 0);
+  try {
+    assert.throws(() => store.enqueue({ date: '2026-10-01', desc: 'Overwrite', amount: -4, currency: 'CAD', account: 'Cash', category: 'Other' }));
+  } finally {
+    fs.chmodSync(store.queueFile, 0o600);
+  }
+  const text = fs.readFileSync(store.queueFile, 'utf8');
+  assert.match(text, /Keep me/);
+  assert.doesNotMatch(text, /Overwrite/);
+});
+
+test('concurrent enqueue and acknowledge do not drop transactions', async () => {
+  const dir = tempDir();
+  const store = createBridgeStore(dir);
+  const seed = store.enqueue({ date: '2026-10-01', desc: 'seed', amount: -1, currency: 'CAD', account: 'Cash', category: 'Other' });
+  const bridge = require.resolve('../bridge/ledger-bridge.js');
+  const script = `
+    const { createBridgeStore } = require(${JSON.stringify(bridge)});
+    const queue = createBridgeStore(process.argv[1]);
+    if (process.argv[2] === 'enqueue') {
+      const item = queue.enqueue({ date: '2026-10-01', desc: process.argv[3], amount: -2, currency: 'CAD', account: 'Cash', category: 'Other' });
+      process.stdout.write(item.id);
+    } else {
+      process.stdout.write(JSON.stringify(queue.acknowledge([process.argv[3]])));
+    }
+  `;
+  const run = (args) => new Promise((resolve, reject) => {
+    const child = require('child_process').spawn(process.execPath, ['-e', script, ...args]);
+    let out = ''; let err = '';
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.stderr.on('data', (chunk) => { err += chunk; });
+    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(err || `exit ${code}`))));
+  });
+  await Promise.all([
+    ...Array.from({ length: 8 }, (_, i) => run([dir, 'enqueue', `item-${i}`])),
+    run([dir, 'ack', seed.id]),
+  ]);
+  const doc = JSON.parse(fs.readFileSync(store.queueFile, 'utf8'));
+  assert.equal(doc.items.length, 9);
+  assert.equal(doc.items.filter((item) => item.id === seed.id && item.acknowledgedAt).length, 1);
+  assert.deepEqual(store.pending().map((item) => item.desc).sort(), Array.from({ length: 8 }, (_, i) => `item-${i}`).sort());
+});
