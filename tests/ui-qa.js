@@ -51,17 +51,17 @@ function stable(before, after, label) {
   await page.goto(baseURL, { waitUntil: 'networkidle' });
   await page.evaluate(async () => {
     const rows = [
-      { id: 'qa-tx-1', date: '2026-05-01', desc: 'Payroll - QA Corp', amount: 4200, currency: 'CAD', account: 'Chequing', source: 'qa', category: 'Income' },
-      { id: 'qa-tx-2', date: '2026-05-03', desc: 'Loblaws Market', amount: -142.18, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Groceries' },
-      { id: 'qa-tx-3', date: '2026-06-03', desc: 'Loblaws Market', amount: -96.4, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Groceries' },
-      { id: 'qa-tx-4', date: '2026-07-03', desc: 'Loblaws Market', amount: -178.55, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Groceries' },
-      { id: 'qa-tx-5', date: '2026-07-06', desc: 'Netflix', amount: -18.99, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Subscriptions' },
-      { id: 'qa-tx-6', date: '2026-06-06', desc: 'Netflix', amount: -16.49, currency: 'CAD', account: 'Amex', source: 'qa', category: 'Subscriptions' },
+      { id: 'qa-tx-1', date: '2026-05-01', desc: 'Payroll - QA Corp', amount: 4200, currency: 'CAD', account: 'Simplii', source: 'qa', category: 'Income' },
+      { id: 'qa-tx-2', date: '2026-05-03', desc: 'Loblaws Market', amount: -142.18, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Groceries' },
+      { id: 'qa-tx-3', date: '2026-06-03', desc: 'Loblaws Market', amount: -96.4, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Groceries' },
+      { id: 'qa-tx-4', date: '2026-07-03', desc: 'Loblaws Market', amount: -178.55, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Groceries' },
+      { id: 'qa-tx-5', date: '2026-07-06', desc: 'Netflix', amount: -18.99, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Subscriptions' },
+      { id: 'qa-tx-6', date: '2026-06-06', desc: 'Netflix', amount: -16.49, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Subscriptions' },
     ];
-    for (let i = 7; i <= 30; i++) rows.push({ id: 'qa-tx-' + i, date: '2026-0' + (1 + (i % 7)) + '-1' + (i % 9), desc: 'Merchant ' + i, amount: -(i * 7.5), currency: 'CAD', account: i % 2 ? 'Amex' : 'Chequing', source: 'qa', category: 'Groceries' });
-    S.accounts = { Chequing: { currency: 'CAD' }, Amex: { currency: 'CAD' } };
-    S.subscriptions = [{ id: 'qa-sub-1', name: 'Rent', amount: 1800, currency: 'CAD', period: 'monthly', date: '2026-08-01', category: 'Housing', business: '', account: 'Chequing', jar: '', source: 'manual' }];
-    S.creditCards = [{ id: 'qa-cc-1', name: 'Amex Gold', balance: 4200, apr: 19.99, payment: 250, currency: 'CAD', account: 'Amex' }];
+    for (let i = 7; i <= 30; i++) rows.push({ id: 'qa-tx-' + i, date: '2026-0' + (1 + (i % 7)) + '-1' + (i % 9), desc: 'Merchant ' + i, amount: -(i * 7.5), currency: i % 3 ? 'CAD' : 'USD', account: i % 3 ? (i % 2 ? 'Neo Credit Card' : 'Simplii') : 'Wise', source: 'qa', category: 'Groceries' });
+    S.accounts = { Simplii: { currency: 'CAD' }, 'Neo Credit Card': { currency: 'CAD' }, Wise: { currency: 'USD' } };
+    S.subscriptions = [{ id: 'qa-sub-1', name: 'Rent', amount: 1800, currency: 'CAD', period: 'monthly', date: '2026-08-01', category: 'Housing', business: '', account: 'Simplii', jar: '', source: 'manual' }];
+    S.creditCards = [{ id: 'qa-cc-1', name: 'Neo Credit Card', balance: 4200, apr: 19.99, payment: 250, currency: 'CAD', account: 'Neo Credit Card' }];
     await DB.putTx(rows);
     S.tx = rows; S.txIds = new Set(rows.map(t => t.id));
     await DB.kvSet('accounts', S.accounts);
@@ -71,9 +71,13 @@ function stable(before, after, label) {
   });
   await page.waitForTimeout(900);
   assert(await page.locator('#view-overview .hero .big').isVisible(), 'Populated overview did not render');
+  assert(await page.locator('#view-overview .account-card').count() === 3, 'Overview did not render one card per account');
+  for (const account of ['Simplii', 'Neo Credit Card', 'Wise']) {
+    assert(await page.getByRole('button', { name: new RegExp(`Open ${account} transactions`) }).isVisible(), `${account} overview card missing`);
+  }
 
   const navBeforeHover = navigations;
-  for (const target of ['.hero', '.kpi-row .card', 'nav.topnav button:nth-child(2)', '#overviewScanBtn']) {
+  for (const target of ['.hero', '.kpi-row .card', 'nav.topnav button:nth-child(2)', '#overviewAddBtn']) {
     const item = page.locator(target).first();
     const before = await item.boundingBox();
     await item.hover();

@@ -179,6 +179,19 @@ main { width: 100%; max-width: 1240px; margin: 0 auto; padding: 24px 16px 110px;
 .sub { font-size: 13px; color: var(--muted); }
 .pos { color: var(--positive); } .neg { color: var(--coral); }
 
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.account-card {
+  appearance: none; width: 100%; min-width: 0; padding: 18px; text-align: left; color: var(--ink);
+  background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius-sm); cursor: pointer;
+  box-shadow: var(--shadow); font: inherit; transition: border-color .16s ease, background-color .16s ease;
+}
+.account-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--hairline)); background: color-mix(in srgb, var(--card) 94%, var(--accent-soft)); }
+.account-card-head { display: flex; align-items: center; gap: 10px; }
+.account-card-name { min-width: 0; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-card-currency { margin-left: auto; }
+.account-card-balance { display: block; margin-top: 20px; font: 700 clamp(24px, 4vw, 34px)/1 var(--display); letter-spacing: -.03em; }
+.account-card-native { display: block; margin-top: 5px; }
+
 .delta { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
 .delta.down { background: var(--accent-soft); color: var(--accent); }
 .delta.up { background: var(--coral-soft); color: var(--coral); }
@@ -2164,8 +2177,8 @@ function renderOverview() {
     el.innerHTML = `<div class="card empty"><span class="serif">A quiet ledger.</span>
       Import a CSV statement, scan a receipt, or add a transaction with ＋ above.
       <div class="sub" style="margin-top:14px">Everything stays on this device. Back up anytime under Settings → Export JSON.</div></div>
-      <button class="fab" id="overviewScanBtn" type="button" aria-label="Scan receipt">Scan receipt</button>`;
-    $('#overviewScanBtn').onclick = () => $('#cameraInput').click();
+      <button class="fab" id="overviewAddBtn" type="button" aria-label="Add transaction">＋ Add transaction</button>`;
+    $('#overviewAddBtn').onclick = () => openTxModal(null);
     return;
   }
   const base = S.settings.base; const byAcct = {};
@@ -2194,6 +2207,14 @@ function renderOverview() {
       <div class="sub" style="margin-top:4px">across ${Object.keys(byAcct).length} accounts, shown in ${base} · hover or drag the line</div>
       ${sparkline(days)}
     </div>
+    <div class="account-grid gridrow" aria-label="Account balances">
+      ${Object.entries(byAcct).map(([name, a]) => `
+        <button class="account-card" type="button" data-acct="${esc(name)}" aria-label="Open ${esc(name)} transactions">
+          <span class="account-card-head"><span class="avatar" style="background:${acctColor(name)}">${esc(acctInitials(name))}</span><span class="account-card-name">${esc(name)}</span><span class="account-card-currency sub">${a.mixed ? 'Multi-currency' : a.cur}</span></span>
+          <span class="account-card-balance num ${a.base < 0 ? 'neg' : ''}" title="${a.mixed ? '' : esc(rateTooltip(a.cur))}">${baseFmt(a.base)}</span>
+          ${a.mixed || a.cur === base ? '' : `<span class="account-card-native sub num">${fmtMoney(a.native, a.cur)}</span>`}
+        </button>`).join('')}
+    </div>
     <div class="kpi-row gridrow">
       <div class="card"><div class="label">${monthLabel(mk)} income</div><div class="mid num pos cu" data-v="${cur.income}">${baseFmt(cur.income)}</div></div>
       <div class="card"><div class="label">${monthLabel(mk)} spend</div>
@@ -2218,18 +2239,11 @@ function renderOverview() {
           <span class="num" style="text-align:right;white-space:nowrap;display:flex;flex-direction:column;align-items:flex-end;gap:2px">${baseFmt(r.monthly)}<span class="sub num">${baseFmt(r.monthly * 12)}/yr</span></span></div>`).join('')}</div>`
         : '<div class="sub">No recurring charges yet. Add one under Recurring or import a few months of activity.</div>'}
     </div>
-    <div class="card">
-      <div class="label">Accounts</div>
-      <div class="acctlist">${Object.entries(byAcct).map(([name, a]) => `
-        <div class="acctrow" data-acct="${esc(name)}"><span class="avatar" style="background:${acctColor(name)}">${esc(acctInitials(name))}</span>
-          <span class="name">${esc(name)}<span class="sub">${a.mixed ? 'multi-currency' : a.cur}</span></span>
-          <span class="bal num" title="${a.mixed ? '' : esc(rateTooltip(a.cur))}"><span class="${a.base < 0 ? 'neg' : ''}">${baseFmt(a.base)}</span>${a.mixed || a.cur === base ? '' : `<span class="sub num">${fmtMoney(a.native, a.cur)}</span>`}</span></div>`).join('')}</div>
-    </div>
-    <button class="fab" id="overviewScanBtn" type="button" aria-label="Scan receipt">Scan receipt</button>`;
+    <button class="fab" id="overviewAddBtn" type="button" aria-label="Add transaction">＋ Add transaction</button>`;
   enterCharts('#view-overview');
-  $('#overviewScanBtn').onclick = () => $('#cameraInput').click();
+  $('#overviewAddBtn').onclick = () => openTxModal(null);
   attachSparkScrub(days);
-  $$('#view-overview .acctrow').forEach(row => { row.onclick = () => gotoTransactions({ account: row.dataset.acct }); });
+  $$('#view-overview .account-card').forEach(card => { card.onclick = () => gotoTransactions({ account: card.dataset.acct }); });
   $$('#view-overview .recrow').forEach(row => { row.onclick = () => { switchView('subscriptions'); window.scrollTo({ top: 0 }); }; });
   $$('#view-overview .donutlegend .row[data-cat]').forEach(row => { row.onclick = () => gotoTransactions({ category: row.dataset.cat, month: mk }); });
 }
