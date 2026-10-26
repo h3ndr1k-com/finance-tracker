@@ -520,7 +520,7 @@ nav.tabbar {
   background: color-mix(in srgb, var(--card) 96%, transparent);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--hairline);
-  padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 6px max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px));
   justify-content: space-around;
 }
 nav.tabbar button {
