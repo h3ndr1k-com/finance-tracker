@@ -51,7 +51,7 @@ function stable(before, after, label) {
   await page.goto(baseURL, { waitUntil: 'networkidle' });
   await page.evaluate(async () => {
     const rows = [
-      { id: 'qa-tx-1', date: '2026-05-01', desc: 'Payroll - QA Corp', amount: 4200, currency: 'CAD', account: 'Simplii', source: 'qa', category: 'Income' },
+      { id: 'qa-tx-1', date: todayISO(), desc: 'Payroll - QA Corp', amount: 4200, currency: 'CAD', account: 'Simplii', source: 'qa', category: 'Income' },
       { id: 'qa-tx-2', date: '2026-05-03', desc: 'Loblaws Market', amount: -142.18, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Groceries' },
       { id: 'qa-tx-3', date: '2026-06-03', desc: 'Loblaws Market', amount: -96.4, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Groceries' },
       { id: 'qa-tx-4', date: '2026-07-03', desc: 'Loblaws Market', amount: -178.55, currency: 'CAD', account: 'Neo Credit Card', source: 'qa', category: 'Groceries' },
@@ -75,6 +75,12 @@ function stable(before, after, label) {
   for (const account of ['Simplii', 'Neo Credit Card', 'Wise']) {
     assert(await page.getByRole('button', { name: new RegExp(`Open ${account} transactions`) }).isVisible(), `${account} overview card missing`);
   }
+  assert(await page.locator('#view-overview .recent-tx-row').count() >= 1, 'Recent activity did not show this week’s transactions');
+  await page.locator('.account-visibility summary').click();
+  await page.getByRole('checkbox', { name: 'Wise' }).uncheck();
+  assert(!(await page.getByRole('button', { name: /Open Wise transactions/ }).isVisible()), 'Hidden account card stayed visible');
+  await page.getByRole('checkbox', { name: 'Wise' }).check();
+  assert(await page.getByRole('button', { name: /Open Wise transactions/ }).isVisible(), 'Re-enabled account card stayed hidden');
 
   const navBeforeHover = navigations;
   for (const target of ['.hero', '.kpi-row .card', 'nav.topnav button:nth-child(2)', '#overviewAddBtn']) {
