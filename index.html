@@ -277,6 +277,14 @@ td.selcol, th.selcol { width: 30px; padding-right: 0; cursor: default; }
 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
 .filters input[type="search"] { flex: 1; min-width: 150px; }
+.filtermenu { position: relative; }
+.filtermenu summary { list-style: none; cursor: pointer; border: 1px solid var(--hairline); background: var(--card); border-radius: var(--pill); padding: 10px 16px; font-weight: 600; font-size: 14px; user-select: none; -webkit-tap-highlight-color: transparent; }
+.filtermenu summary::-webkit-details-marker { display: none; }
+.filtermenu summary::after { content: " ▾"; color: var(--muted); }
+.filtercount { margin-left: 6px; background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 1px 7px; font-size: 12px; }
+.filterpanel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(320px, calc(100vw - 32px)); display: grid; gap: 12px; padding: 16px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius); box-shadow: var(--shadow); }
+.filterpanel label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.filters .filterpanel select, .filters .filterpanel input { width: 100%; font-size: 16px; }
 
 .bulkbar {
   display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
@@ -765,6 +773,17 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   .split-view .split-detail { position: static; }
   .split-view .split-detail.empty { display: none; }
 }
+@media (max-width: 759px) {
+  #txTableWrap.card { padding: 0; border: 0; background: none; box-shadow: none; }
+  #txTableWrap .list-row { flex-wrap: wrap; align-items: flex-start; gap: 4px 12px; padding: 14px 16px; }
+  #txTableWrap .list-row-avatar { display: none; }
+  #txTableWrap .rowchk { width: 22px; height: 22px; margin-top: 6px; }
+  #txTableWrap .list-row-title { font-size: 16px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  #txTableWrap .list-row-main > .list-row-sub { font-size: 13px; display: block; margin-top: 2px; }
+  #txTableWrap .list-row-amount { font-size: 16px; font-weight: 600; }
+  #txTableWrap .list-row-pills { flex-basis: 100%; justify-content: flex-start; margin: 0 0 0 34px; }
+  #txTableWrap .split-list-head { flex-wrap: wrap; }
+}
 /* ---------- local AI check-in chat ---------- */
 .modal-chat { display: flex; flex-direction: column; gap: 0; }
 .chathead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -816,11 +835,17 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
     <div class="view-heading"><h2>Transactions</h2><p>Search, sort, and recategorize your complete financial history.</p></div>
     <div class="filters">
       <input type="search" id="fSearch" placeholder="Search description…">
-      <select id="fAccount"><option value="">All accounts</option></select>
-      <select id="fCategory"><option value="">All categories</option></select>
-      <select id="fBusiness"><option value="">All</option></select>
-      <input type="date" id="fFrom" title="From date">
-      <input type="date" id="fTo" title="To date">
+      <details class="filtermenu" id="filterMenu">
+        <summary>Filters<span class="filtercount" id="filterCount" hidden></span></summary>
+        <div class="filterpanel">
+          <label>Account<select id="fAccount"><option value="">All accounts</option></select></label>
+          <label>Category<select id="fCategory"><option value="">All categories</option></select></label>
+          <label>Business<select id="fBusiness"><option value="">All</option></select></label>
+          <label>From<input type="date" id="fFrom"></label>
+          <label>To<input type="date" id="fTo"></label>
+          <button type="button" class="ghost" id="filterClear">Clear filters</button>
+        </div>
+      </details>
     </div>
     <div class="bulkbar" id="bulkbar"></div>
     <div class="card tablewrap" id="txTableWrap"></div>
@@ -2303,6 +2328,8 @@ function renderTransactions() {
   if (bizSel) bizSel.innerHTML = '<option value="">All</option><option value="__personal">Personal</option>' + businessNames().map(b => `<option>${esc(b)}</option>`).join('');
   acctSel.value = keepA; catSel.value = keepC; if (bizSel) bizSel.value = keepB;
   const q = $('#fSearch').value.toLowerCase(); const fa = acctSel.value, fc = catSel.value, fb = bizSel?.value || '', ff = $('#fFrom').value, ft = $('#fTo').value;
+  const active = [fa, fc, fb, ff, ft].filter(Boolean).length;
+  $('#filterCount').textContent = active; $('#filterCount').hidden = !active;
   const list = S.tx.filter(t => (!q || t.desc.toLowerCase().includes(q)) && (!fa || t.account === fa) && (!fc || t.category === fc) && (!fb || (fb === '__personal' ? !t.business : t.business === fb)) && (!ff || t.date >= ff) && (!ft || t.date <= ft));
   list.sort((a, b) => { let va = a[sortCol], vb = b[sortCol]; if (sortCol === 'amount') { va = toBase(a.amount, a.currency); vb = toBase(b.amount, b.currency); } if (sortCol === 'business') { va = a.business || ''; vb = b.business || ''; } return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir; });
   const arrow = (c) => sortCol === c ? (sortDir > 0 ? ' ↑' : ' ↓') : '';
@@ -3145,6 +3172,8 @@ document.addEventListener('keydown', (e) => {
   }
 });
 ['fSearch', 'fAccount', 'fCategory', 'fBusiness', 'fFrom', 'fTo'].forEach(id => { const el = $('#' + id); if (el) el.addEventListener('input', renderTransactions); });
+$('#filterClear').onclick = () => { ['fAccount', 'fCategory', 'fBusiness', 'fFrom', 'fTo'].forEach(id => { $('#' + id).value = ''; }); renderTransactions(); };
+document.addEventListener('click', e => { const m = $('#filterMenu'); if (m.open && !m.contains(e.target)) m.open = false; });
 $('#budgetMonth').addEventListener('input', renderBudgets);
 
 document.addEventListener('visibilitychange', () => {
