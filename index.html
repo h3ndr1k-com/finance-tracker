@@ -141,6 +141,8 @@ nav.topnav button.active::before { content: ""; width: 6px; height: 6px; border-
 .iconbtn { background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer; font-size: 16px; min-width: 38px; min-height: 38px; padding: 7px 9px; border-radius: 50%; transition: color .16s ease, background-color .16s ease, border-color .16s ease, transform .16s ease; }
 .iconbtn:hover { background: var(--raised); border-color: var(--hairline); color: var(--ink); transform: translateY(-1px); }
 
+.bridge-notice { padding: 10px 16px; background: var(--coral-soft); color: var(--ink); border-bottom: 1px solid color-mix(in srgb, var(--coral) 35%, var(--hairline)); font-size: 14px; line-height: 1.45; }
+.bridge-notice[hidden] { display: none; }
 main { width: 100%; max-width: 1240px; margin: 0 auto; padding: 24px 16px 110px; }
 .view { display: none; }
 .view.active { display: block; }
@@ -864,6 +866,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   <button type="button" class="iconbtn" id="addTxBtn" title="Add transaction" aria-label="Add transaction">＋</button>
   <button type="button" class="iconbtn" id="settingsBtn" title="Settings" aria-label="Open settings">⚙</button>
 </header>
+<div id="bridgeNotice" class="bridge-notice" role="status" hidden></div>
 
 <div id="scroll-root">
 <main id="main-content" tabindex="-1">
@@ -947,6 +950,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
 <input type="file" id="jsonInput" accept="application/json,.json" hidden>
 
 <script src="./reminders.js"></script>
+<script src="./lib/ledger-backup.js"></script>
 <script>
 'use strict';
 
@@ -996,6 +1000,31 @@ async function getMeta() {
   return _meta;
 }
 async function saveMeta() { if (_meta) await DB.kvSet(SYNC_META_KEY, _meta, false); }
+
+function stampImportMeta(prevMeta, prevIds, transactions, prevKv, nextKv) {
+  const now = Date.now();
+  const meta = {
+    txTomb: { ...(prevMeta.txTomb || {}) },
+    kv: JSON.parse(JSON.stringify(prevMeta.kv || {})),
+    lastSync: prevMeta.lastSync || 0,
+    remoteRev: prevMeta.remoteRev || null,
+    deviceId: prevMeta.deviceId || null,
+  };
+  const nextIds = new Set(transactions.map((t) => t.id));
+  for (const id of prevIds) if (id && !nextIds.has(id)) meta.txTomb[id] = now;
+  for (const id of nextIds) delete meta.txTomb[id];
+  for (const t of transactions) t.updatedAt = now;
+  for (const key of Object.keys(SYNC_SCHEMA)) {
+    const entry = meta.kv[key] = meta.kv[key] || { ts: {}, tomb: {} };
+    entry.ts = { ...(entry.ts || {}) };
+    entry.tomb = { ...(entry.tomb || {}) };
+    const prevKeys = new Set(schemaKeys(key, prevKv[key]));
+    const nextKeys = new Set(schemaKeys(key, nextKv[key]));
+    for (const nk of nextKeys) { entry.ts[nk] = now; delete entry.tomb[nk]; }
+    for (const nk of prevKeys) if (!nextKeys.has(nk)) { entry.tomb[nk] = now; delete entry.ts[nk]; }
+  }
+  return meta;
+}
 
 /* Diff previous vs next and stamp only the sub-keys that actually changed, so
    two devices editing different budgets/rules/jars both survive the merge. */
@@ -1108,18 +1137,140 @@ const DB = (() => {
     },
     async putReceipt(id, blob) { if (useLS) return; return prom(store('receipts', 'readwrite').put(blob, id)); },
     async getReceipt(id) { if (useLS) return null; return prom(store('receipts', 'readonly').get(id)); },
-    /* Wipe clears kv, and kv is where tombstones live. Without re-recording them
-       after the clear, a wipe is invisible to the merge engine and the next sync
-       pulls every wiped row straight back off the remote. */
+    /* Device-only. Tombstones would be uploaded on the next sync and the merge
+       engine would delete those transactions from the household snapshot.
+       syncCfg stays so a connected device can pull the household copy back
+       instead of publishing an empty ledger. */
     async wipe() {
-      const ids = (await this.getAllTx()).map(t => t.id);
+      const keep = new Set(['syncCfg', 'syncPass']);
       _meta = null;
-      if (useLS) { Object.keys(localStorage).filter(k => k.startsWith('ledger.')).forEach(k => localStorage.removeItem(k)); }
-      else await Promise.all(['tx', 'kv', 'receipts'].map(s => prom(store(s, 'readwrite').clear())));
-      if (!ids.length) return;
-      const m = await getMeta(); const now = Date.now();
-      ids.forEach(id => { m.txTomb[id] = now; });
-      await saveMeta(); nudgeSync();
+      if (useLS) {
+        const saved = {};
+        for (const key of keep) {
+          const raw = localStorage.getItem('ledger.kv.' + key);
+          if (raw !== null) saved[key] = raw;
+        }
+        Object.keys(localStorage).filter(k => k.startsWith('ledger.')).forEach(k => localStorage.removeItem(k));
+        for (const [key, raw] of Object.entries(saved)) localStorage.setItem('ledger.kv.' + key, raw);
+        return;
+      }
+      await new Promise((res, rej) => {
+        const txn = db.transaction(['tx', 'kv', 'receipts'], 'readwrite');
+        const kvStore = txn.objectStore('kv');
+        const keyReq = kvStore.getAllKeys();
+        const valReq = kvStore.getAll();
+        let keys, vals, pending = 2, failed = false;
+        const fail = (error) => {
+          if (failed) return;
+          failed = true;
+          try { txn.abort(); } catch {}
+          rej(error || txn.error || new Error('Wipe failed'));
+        };
+        txn.oncomplete = () => { if (!failed) res(); };
+        txn.onerror = () => fail(txn.error);
+        txn.onabort = () => fail(txn.error);
+        const finish = () => {
+          if (--pending || failed) return;
+          try {
+            const saved = {};
+            keys.forEach((key, i) => { if (keep.has(key)) saved[key] = vals[i]; });
+            kvStore.clear();
+            txn.objectStore('tx').clear();
+            txn.objectStore('receipts').clear();
+            for (const [key, val] of Object.entries(saved)) kvStore.put(val, key);
+          } catch (error) { fail(error); }
+        };
+        keyReq.onsuccess = () => { keys = keyReq.result || []; finish(); };
+        valReq.onsuccess = () => { vals = valReq.result || []; finish(); };
+        keyReq.onerror = () => fail(keyReq.error);
+        valReq.onerror = () => fail(valReq.error);
+      });
+    },
+    /* One IndexedDB transaction: a thrown put aborts and the previous ledger
+       stays. Callers must validate the payload before this runs. */
+    async replaceImported(transactions, kv) {
+      const preservedKeys = ['syncCfg', 'syncPass', 'reminderLog'];
+      const dataKeys = Object.keys(kv);
+      if (useLS) {
+        const prevTx = JSON.parse(localStorage.getItem('ledger.tx') || '[]');
+        let prevMeta = null;
+        try { prevMeta = JSON.parse(localStorage.getItem('ledger.kv.' + SYNC_META_KEY) || 'null'); } catch { prevMeta = null; }
+        prevMeta = prevMeta || { txTomb: {}, kv: {}, lastSync: 0, remoteRev: null, deviceId: null };
+        const prevKv = {};
+        for (const key of dataKeys) {
+          const raw = localStorage.getItem('ledger.kv.' + key);
+          prevKv[key] = raw == null ? (Array.isArray(kv[key]) ? [] : {}) : JSON.parse(raw);
+        }
+        const preserved = {};
+        for (const key of preservedKeys) {
+          const raw = localStorage.getItem('ledger.kv.' + key);
+          if (raw !== null) preserved[key] = raw;
+        }
+        const nextMeta = stampImportMeta(prevMeta, prevTx.map(t => t.id), transactions, prevKv, kv);
+        const txRaw = JSON.stringify(transactions);
+        const kvRaw = {};
+        for (const key of dataKeys) kvRaw[key] = JSON.stringify(kv[key]);
+        const metaRaw = JSON.stringify(nextMeta);
+        Object.keys(localStorage).filter(k => k.startsWith('ledger.')).forEach(k => {
+          const kvKey = k.startsWith('ledger.kv.') ? k.slice('ledger.kv.'.length) : '';
+          if (preservedKeys.includes(kvKey)) return;
+          localStorage.removeItem(k);
+        });
+        localStorage.setItem('ledger.tx', txRaw);
+        for (const [key, raw] of Object.entries(kvRaw)) localStorage.setItem('ledger.kv.' + key, raw);
+        localStorage.setItem('ledger.kv.' + SYNC_META_KEY, metaRaw);
+        for (const [key, raw] of Object.entries(preserved)) localStorage.setItem('ledger.kv.' + key, raw);
+        _meta = nextMeta;
+        return;
+      }
+      const nextMeta = await new Promise((res, rej) => {
+        const txn = db.transaction(['tx', 'kv', 'receipts'], 'readwrite');
+        const txStore = txn.objectStore('tx');
+        const kvStore = txn.objectStore('kv');
+        const receipts = txn.objectStore('receipts');
+        const txReq = txStore.getAll();
+        const keyReq = kvStore.getAllKeys();
+        const valReq = kvStore.getAll();
+        let txRows, keys, vals, pending = 3, failed = false, metaOut = null;
+        const fail = (error) => {
+          if (failed) return;
+          failed = true;
+          try { txn.abort(); } catch {}
+          rej(error || txn.error || new Error('Import aborted'));
+        };
+        txn.oncomplete = () => { if (!failed) res(metaOut); };
+        txn.onerror = () => fail(txn.error);
+        txn.onabort = () => fail(txn.error);
+        const finish = () => {
+          if (--pending || failed) return;
+          try {
+            const prevKv = {};
+            const preserved = {};
+            keys.forEach((key, i) => {
+              if (preservedKeys.includes(key)) preserved[key] = vals[i];
+              if (dataKeys.includes(key)) prevKv[key] = vals[i];
+            });
+            for (const key of dataKeys) if (!(key in prevKv)) prevKv[key] = Array.isArray(kv[key]) ? [] : {};
+            const metaIdx = keys.indexOf(SYNC_META_KEY);
+            const prevMeta = metaIdx >= 0 && vals[metaIdx] ? vals[metaIdx] : { txTomb: {}, kv: {}, lastSync: 0, remoteRev: null, deviceId: null };
+            metaOut = stampImportMeta(prevMeta, (txRows || []).map(t => t.id), transactions, prevKv, kv);
+            txStore.clear();
+            receipts.clear();
+            kvStore.clear();
+            for (const t of transactions) txStore.put(t);
+            for (const key of dataKeys) kvStore.put(kv[key], key);
+            kvStore.put(metaOut, SYNC_META_KEY);
+            for (const [key, val] of Object.entries(preserved)) kvStore.put(val, key);
+          } catch (error) { fail(error); }
+        };
+        txReq.onsuccess = () => { txRows = txReq.result || []; finish(); };
+        keyReq.onsuccess = () => { keys = keyReq.result || []; finish(); };
+        valReq.onsuccess = () => { vals = valReq.result || []; finish(); };
+        txReq.onerror = () => fail(txReq.error);
+        keyReq.onerror = () => fail(keyReq.error);
+        valReq.onerror = () => fail(valReq.error);
+      });
+      _meta = nextMeta;
     },
   };
 })();
@@ -1280,7 +1431,7 @@ function fmtMoney(amount, cur, opts = {}) {
   return (amount < 0 ? '−' : (opts.plus ? '+' : '')) + sym + s;
 }
 function monthKey(d) { return d.slice(0, 7); }
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+function todayISO() { return reminderTodayISO(); }
 function thisMonth() { return todayISO().slice(0, 7); }
 function prevMonth(mk) { const [y, m] = mk.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
 function monthLabel(mk) { const [y, m] = mk.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }); }
@@ -2911,7 +3062,7 @@ function showSettings() {
     <h2 style="margin-top:18px">Telegram daily check-in</h2>
     <div class="sub">A local bridge receives transactions you confirm in Telegram and writes them into this Ledger on this Mac. It only listens on this Mac; the bridge key stays on this device.</div>
     <div class="formrow"><label for="sBridgeUrl">Bridge URL</label><input id="sBridgeUrl" value="${esc(S.settings.bridgeUrl || 'http://127.0.0.1:8788')}" placeholder="http://127.0.0.1:8788"><button class="primary sm" id="sBridgePair" type="button">Pair this Ledger</button><button class="ghost sm" id="sBridgeTest" type="button">Sync now</button></div>
-    <div class="sub" id="sBridgeStatus">${S.settings.bridgeToken ? 'Paired on this device.' : 'Pair this Ledger once to connect it to the local bridge.'}</div>
+    <div class="sub" id="sBridgeStatus">${globalThis.ledgerBridgeProblem ? esc(globalThis.ledgerBridgeProblem) : (S.settings.bridgeToken ? 'Paired on this device.' : 'Pair this Ledger once to connect it to the local bridge.')}</div>
     <h2 style="margin-top:18px">Sync</h2>
     <div class="sub">Optional. Keeps two devices in step through your own Dropbox. The snapshot is encrypted on this device first, so Dropbox only ever stores ciphertext it cannot read.</div>
     <div id="syncPanel" aria-live="polite"></div>
@@ -3031,10 +3182,15 @@ function showSettings() {
   $('#sImport').onclick = triggerJsonImport;
   $('#sImportBackup').onclick = triggerJsonImport;
   $('#sWipe').onclick = async () => {
-    if (!confirm('Delete ALL local data: transactions, jars, rules, rates, budgets, recurring expenses, and credit cards? This cannot be undone.')) return;
-    await DB.wipe(); Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], businesses: {}, settings: { base: S.settings.base, theme: S.settings.theme, recurringReminders: S.settings.recurringReminders, aiUrl: S.settings.aiUrl, aiModel: S.settings.aiModel } });
+    if (!confirm('Delete all data on this device? Other devices and the household snapshot stay. If sync is connected, the next sync brings the household copy back. Disconnect first if this device should stay empty.')) return;
+    await DB.wipe();
+    const keptSettings = { base: S.settings.base, theme: S.settings.theme, recurringReminders: S.settings.recurringReminders, aiUrl: S.settings.aiUrl, aiModel: S.settings.aiModel };
+    if (S.settings.bridgeUrl) keptSettings.bridgeUrl = S.settings.bridgeUrl;
+    if (S.settings.bridgeToken) keptSettings.bridgeToken = S.settings.bridgeToken;
+    Object.assign(S, { tx: [], txIds: new Set(), rates: [], budgets: {}, rules: {}, mappings: {}, accounts: {}, jarMoves: [], jarAdjustments: [], subscriptions: [], creditCards: [], businesses: {}, settings: keptSettings });
+    await DB.kvSet('settings', S.settings, false);
     await DB.kvSet('reminderLog', {}, false);
-    S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars); await DB.kvSet('catJar', S.catJar);
+    S.jars = structuredClone(DEFAULT_JARS); S.catJar = { ...DEFAULT_CATJAR }; await DB.kvSet('jars', S.jars, false); await DB.kvSet('catJar', S.catJar, false);
     await initDefaults(); $('#settingsModal').classList.remove('open'); renderAll(); toast('All data wiped');
   };
 }
@@ -3110,24 +3266,33 @@ async function exportJsonBackup() {
 }
 async function importJsonBackup(file) {
   const payload = JSON.parse(await file.text());
-  if (!payload || !Array.isArray(payload.transactions)) throw new Error('Not a Ledger export file');
+  validateLedgerBackup(payload);
   if (!confirm(`Replace local data with ${payload.transactions.length} transaction(s) from ${file.name}?`)) return;
-  await DB.wipe();
-  _meta = null;
+  const settings = { ...S.settings, ...(payload.settings || {}), theme: S.settings.theme };
+  const kv = {
+    settings,
+    rates: payload.rates || [],
+    budgets: payload.budgets || {},
+    rules: payload.rules || {},
+    mappings: payload.mappings || {},
+    accounts: payload.accounts || {},
+    jars: payload.jars?.length ? payload.jars : structuredClone(DEFAULT_JARS),
+    catJar: payload.catJar || { ...DEFAULT_CATJAR },
+    jarMoves: payload.jarMoves || [],
+    jarAdjustments: payload.jarAdjustments || [],
+    subscriptions: payload.subscriptions || [],
+    creditCards: payload.creditCards || [],
+    businesses: payload.businesses || {},
+  };
+  await DB.replaceImported(payload.transactions, kv);
   S.tx = payload.transactions; S.txIds = new Set(S.tx.map(t => t.id));
-  S.settings = { ...S.settings, ...(payload.settings || {}), theme: S.settings.theme };
-  S.rates = payload.rates || []; S.budgets = payload.budgets || {}; S.rules = payload.rules || {};
-  S.mappings = payload.mappings || {}; S.accounts = payload.accounts || {};
-  S.jars = payload.jars?.length ? payload.jars : structuredClone(DEFAULT_JARS);
-  S.catJar = payload.catJar || { ...DEFAULT_CATJAR };
-  S.jarMoves = payload.jarMoves || []; S.jarAdjustments = payload.jarAdjustments || [];
-  S.subscriptions = payload.subscriptions || []; S.creditCards = payload.creditCards || [];
-  S.businesses = payload.businesses || {};
-  await DB.putTx(S.tx, false);
-  await DB.kvSet('settings', S.settings, false);
-  for (const [key, val] of Object.entries({ rates: S.rates, budgets: S.budgets, rules: S.rules, mappings: S.mappings, accounts: S.accounts, jars: S.jars, catJar: S.catJar, jarMoves: S.jarMoves, jarAdjustments: S.jarAdjustments, subscriptions: S.subscriptions, creditCards: S.creditCards, businesses: S.businesses })) {
-    await DB.kvSet(key, val, false);
-  }
+  S.settings = settings;
+  S.rates = kv.rates; S.budgets = kv.budgets; S.rules = kv.rules;
+  S.mappings = kv.mappings; S.accounts = kv.accounts;
+  S.jars = kv.jars; S.catJar = kv.catJar;
+  S.jarMoves = kv.jarMoves; S.jarAdjustments = kv.jarAdjustments;
+  S.subscriptions = kv.subscriptions; S.creditCards = kv.creditCards;
+  S.businesses = kv.businesses;
   await initDefaults();
   applyTheme(S.settings.theme || 'dark');
   nudgeSync();

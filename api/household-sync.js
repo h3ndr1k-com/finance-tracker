@@ -50,20 +50,86 @@ function send(res, status, body, headers = {}) {
   res.end(payload);
 }
 
-function fileStore(dir, filename = 'ledger.bin') {
+function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+/* mkdir is atomic on the same filesystem, so the read/compare/write stays one
+   critical section even when two Node processes hit the file together. */
+async function withDirLock(dir, fn) {
+  await fs.promises.mkdir(dir, { recursive: true });
+  const lockDir = path.join(dir, '.ledger-sync.lock');
+  const started = Date.now();
+  for (;;) {
+    try {
+      await fs.promises.mkdir(lockDir);
+      break;
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      let stale = false;
+      try {
+        const st = await fs.promises.stat(lockDir);
+        stale = Date.now() - st.mtimeMs > 10000;
+      } catch (err) {
+        if (err && err.code === 'ENOENT') continue;
+        throw err;
+      }
+      if (stale) {
+        await fs.promises.rm(lockDir, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() - started > 8000) {
+        throw Object.assign(new Error('Snapshot lock timed out'), { code: 'LOCK_TIMEOUT' });
+      }
+      await delay(10);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    await fs.promises.rm(lockDir, { recursive: true, force: true });
+  }
+}
+
+function fileStore(dir, filename = 'ledger.bin', opts = {}) {
   const file = path.join(dir, filename);
+  async function read() {
+    try { return await fs.promises.readFile(file); }
+    catch (e) { if (e && e.code === 'ENOENT') return null; throw e; }
+  }
+  async function write(buf) {
+    await fs.promises.mkdir(dir, { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fs.promises.writeFile(tmp, buf);
+    await fs.promises.rename(tmp, file);
+  }
   return {
-    async read() {
-      try { return await fs.promises.readFile(file); }
-      catch (e) { if (e && e.code === 'ENOENT') return null; throw e; }
-    },
-    async write(buf) {
-      await fs.promises.mkdir(dir, { recursive: true });
-      const tmp = file + '.tmp';
-      await fs.promises.writeFile(tmp, buf);
-      await fs.promises.rename(tmp, file);
+    read,
+    write,
+    /* expectedRev is the caller's If-Match (content hash). Empty means the
+       snapshot must still be absent. The lock covers the gap a parallel PUT
+       would otherwise use to overwrite a revision it never read. */
+    async compareAndSwap(expectedRev, buf) {
+      return withDirLock(dir, async () => {
+        const current = await read();
+        if (opts.pauseMs) await delay(opts.pauseMs);
+        if (current) {
+          const currentRev = revOf(current);
+          if (!expectedRev || expectedRev !== currentRev) return { ok: false, rev: currentRev };
+        }
+        await write(buf);
+        return { ok: true, rev: revOf(buf) };
+      });
     },
   };
+}
+
+function isConditionalConflict(error) {
+  if (!error) return false;
+  const name = String(error.name || '');
+  if (name === 'BlobPreconditionFailedError' || name === 'BlobAlreadyExistsError') return true;
+  const status = error.status || error.statusCode;
+  if (status === 412) return true;
+  if (status === 409 && /exist|precondition|conflict/i.test(String(error.message || ''))) return true;
+  return /precondition failed|already exists/i.test(String(error.message || ''));
 }
 
 function isMissingBlobError(e) {
@@ -114,56 +180,115 @@ async function readSnapshot(store) {
   }
 }
 
-function blobStore(token, blobPath = BLOB_PATH) {
+function blobStore(token, blobPath = BLOB_PATH, blobApi) {
   const pathname = String(blobPath || BLOB_PATH);
   const listPrefix = pathname.startsWith('household/') ? 'household/' : pathname.replace(/\/[^/]+$/, '/') || 'household/';
+  const api = () => blobApi || require('@vercel/blob');
+  const readOpts = () => ({ token, access: 'private', useCache: false });
+
+  async function readEntry(urlOrPath) {
+    const blob = api();
+    if (typeof blob.get !== 'function') return null;
+    try {
+      const direct = await blob.get(urlOrPath, readOpts());
+      if (direct && direct.stream) {
+        const buf = await streamToBuffer(direct.stream);
+        if (buf && buf.length) {
+          const info = direct.blob || {};
+          return {
+            buf,
+            etag: info.etag || null,
+            pathname: info.pathname || (typeof urlOrPath === 'string' ? urlOrPath : pathname),
+          };
+        }
+      }
+    } catch (e) {
+      if (!isMissingBlobError(e)) throw e;
+    }
+    return null;
+  }
+
+  async function readMeta() {
+    const blob = api();
+    const direct = await readEntry(pathname);
+    if (direct) return direct;
+    // put() may still add a random suffix; head(pathname) then 404s even
+    // after PUT 200. list() sees household/ledger-*.bin — pick the largest
+    // so an empty phone upload cannot hide a populated snapshot.
+    const listed = await blob.list({ prefix: listPrefix, token });
+    const chosen = pickHouseholdBlob(listed && listed.blobs, pathname);
+    if (!chosen) return null;
+    const via = await readEntry(chosen.url || chosen.pathname);
+    if (via) {
+      return {
+        buf: via.buf,
+        etag: via.etag || chosen.etag || null,
+        pathname: via.pathname || chosen.pathname || pathname,
+      };
+    }
+    try {
+      const meta = await blob.head(chosen.url || chosen.pathname, { token });
+      const r = await fetch(meta.url);
+      if (!r.ok) return null;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (!buf.length) return null;
+      return {
+        buf,
+        etag: meta.etag || chosen.etag || null,
+        pathname: meta.pathname || chosen.pathname || pathname,
+      };
+    } catch (e) {
+      if (isMissingBlobError(e)) return null;
+      throw e;
+    }
+  }
+
   return {
     async read() {
-      const blob = require('@vercel/blob');
-      const opts = { token, access: 'private', useCache: false };
-      try {
-        if (typeof blob.get === 'function') {
-          const direct = await blob.get(pathname, opts);
-          if (direct && direct.stream) {
-            const buf = await streamToBuffer(direct.stream);
-            if (buf && buf.length) return buf;
-          }
-        }
-      } catch (e) {
-        if (!isMissingBlobError(e)) throw e;
-      }
-      // put() may still add a random suffix; head(pathname) then 404s even
-      // after PUT 200. list() sees household/ledger-*.bin — pick the largest
-      // so an empty phone upload cannot hide a populated snapshot.
-      const listed = await blob.list({ prefix: listPrefix, token });
-      const chosen = pickHouseholdBlob(listed && listed.blobs, pathname);
-      if (!chosen) return null;
-      if (typeof blob.get === 'function') {
-        const via = await blob.get(chosen.url || chosen.pathname, opts);
-        if (via && via.stream) {
-          const buf = await streamToBuffer(via.stream);
-          if (buf && buf.length) return buf;
-        }
-      }
-      try {
-        const meta = await blob.head(chosen.url || chosen.pathname, { token });
-        const r = await fetch(meta.url);
-        if (!r.ok) return null;
-        return Buffer.from(await r.arrayBuffer());
-      } catch (e) {
-        if (isMissingBlobError(e)) return null;
-        throw e;
-      }
+      const meta = await readMeta();
+      return meta ? meta.buf : null;
     },
-    async write(buf) {
-      const blob = require('@vercel/blob');
-      await blob.put(pathname, buf, {
-        access: 'private',
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        token,
-        contentType: 'application/octet-stream',
-      });
+    /* Blob ifMatch is the store's etag, not our content hash. The handler
+       still speaks If-Match as revOf(body). This method checks that hash,
+       then commits with the etag so a second writer loses with 412 instead
+       of overwriting. */
+    async compareAndSwap(expectedRev, buf) {
+      const current = await readMeta();
+      const blob = api();
+      if (current) {
+        const currentRev = revOf(current.buf);
+        if (!expectedRev || expectedRev !== currentRev) return { ok: false, rev: currentRev };
+        if (!current.etag) throw Object.assign(new Error('Snapshot etag missing'), { code: 'ETAG_REQUIRED' });
+        try {
+          await blob.put(current.pathname || pathname, buf, {
+            access: 'private',
+            addRandomSuffix: false,
+            allowOverwrite: true,
+            ifMatch: current.etag,
+            token,
+            contentType: 'application/octet-stream',
+          });
+        } catch (e) {
+          if (!isConditionalConflict(e)) throw e;
+          const again = await readMeta();
+          return { ok: false, rev: again ? revOf(again.buf) : null };
+        }
+        return { ok: true, rev: revOf(buf) };
+      }
+      try {
+        await blob.put(pathname, buf, {
+          access: 'private',
+          addRandomSuffix: false,
+          allowOverwrite: false,
+          token,
+          contentType: 'application/octet-stream',
+        });
+      } catch (e) {
+        if (!isConditionalConflict(e)) throw e;
+        const again = await readMeta();
+        return { ok: false, rev: again ? revOf(again.buf) : null };
+      }
+      return { ok: true, rev: revOf(buf) };
     },
   };
 }
@@ -172,8 +297,8 @@ function createStore(opts = {}) {
   const blobPath = opts.blobPath || BLOB_PATH;
   const inboxName = blobPath === DEFAULT_INBOX_BLOB_PATH ? 'bridge-inbox.bin' : 'ledger.bin';
   if (opts.dataDir) return fileStore(opts.dataDir, opts.fileName || inboxName);
-  if (opts.blobToken || process.env.BLOB_READ_WRITE_TOKEN) {
-    return blobStore(opts.blobToken || process.env.BLOB_READ_WRITE_TOKEN, blobPath);
+  if (opts.blobApi || opts.blobToken || process.env.BLOB_READ_WRITE_TOKEN) {
+    return blobStore(opts.blobToken || process.env.BLOB_READ_WRITE_TOKEN || '', blobPath, opts.blobApi);
   }
   if (process.env.LEDGER_SYNC_DATA_DIR) {
     return fileStore(process.env.LEDGER_SYNC_DATA_DIR, opts.fileName || inboxName);
@@ -250,18 +375,27 @@ async function handleHouseholdBlobSync(req, res, opts = {}) {
       send(res, 400, { error: 'NOT_LEDGER_FILE' });
       return;
     }
-    const current = await readSnapshot(store);
+    if (typeof store.compareAndSwap !== 'function') {
+      send(res, 503, { error: 'SYNC_SERVER_UNAVAILABLE', message: 'Snapshot store cannot compare and swap' });
+      return;
+    }
     const ifMatch = String(req.headers['if-match'] || '').replace(/"/g, '').trim();
-    if (current) {
-      const currentRev = revOf(current);
-      if (!ifMatch || ifMatch !== currentRev) {
-        send(res, 409, { error: 'CONFLICT' }, { 'X-Ledger-Rev': currentRev, ETag: `"${currentRev}"` });
+    let result;
+    try {
+      result = await store.compareAndSwap(ifMatch, body);
+    } catch (e) {
+      if (e && (e.code === 'LOCK_TIMEOUT' || e.code === 'ETAG_REQUIRED')) {
+        send(res, 503, { error: 'SYNC_SERVER_UNAVAILABLE', message: 'Snapshot could not be updated safely' });
         return;
       }
+      throw e;
     }
-    await store.write(body);
-    const rev = revOf(body);
-    send(res, 200, { ok: true, rev }, { 'X-Ledger-Rev': rev, ETag: `"${rev}"` });
+    if (!result || !result.ok) {
+      const rev = result && result.rev;
+      send(res, 409, { error: 'CONFLICT' }, rev ? { 'X-Ledger-Rev': rev, ETag: `"${rev}"` } : {});
+      return;
+    }
+    send(res, 200, { ok: true, rev: result.rev }, { 'X-Ledger-Rev': result.rev, ETag: `"${result.rev}"` });
     return;
   }
 

@@ -1,14 +1,22 @@
 'use strict';
 /* Shared recurring-expense reminder logic for index.html and sw.js */
 
+function localISODate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function reminderTodayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return localISODate(new Date());
 }
 
 function reminderAddDays(iso, days) {
-  const d = new Date(iso + 'T12:00:00');
+  const parts = String(iso || reminderTodayISO()).split('-').map(Number);
+  const d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return localISODate(d);
 }
 
 function reminderTomorrowISO(fromISO) {
@@ -49,4 +57,12 @@ function pruneReminderLog(log, todayISO) {
     if (dueDate >= today) out[key] = sentOn;
   }
   return out;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    localISODate, reminderTodayISO, reminderAddDays, reminderTomorrowISO,
+    reminderKey, subscriptionsDueOn, pendingRecurringReminders, reminderAmountLabel,
+    reminderBody, pruneReminderLog,
+  };
 }
