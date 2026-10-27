@@ -47,6 +47,8 @@ function assert(condition, message) {
   });
   const page = await context.newPage();
   const errors = [];
+  let navigations = 0;
+  page.on('framenavigated', (frame) => { if (frame === page.mainFrame()) navigations += 1; });
   page.on('pageerror', (e) => errors.push(e.message));
 
   await page.goto(baseURL, { waitUntil: 'networkidle' });
@@ -80,6 +82,8 @@ function assert(condition, message) {
     };
   });
   assert(regInfo.active, 'Service worker did not activate');
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  assert(navigations === 1, 'First service worker activation must not reload the page');
 
   await page.reload({ waitUntil: 'networkidle' });
   assert(await page.evaluate(() => !!navigator.serviceWorker.controller), 'Refreshed page has no SW controller');

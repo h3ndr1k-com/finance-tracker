@@ -845,6 +845,8 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 52%, transpar
   .chatlog { max-height: 48dvh; }
 }
 </style>
+<link rel="stylesheet" href="./app-feel.css">
+<script src="./app-feel.js"></script>
 </head>
 <body>
 <div id="app-shell">
@@ -3417,9 +3419,10 @@ if (navigator.serviceWorker) {
 }
 
 if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing) return;
+    if (!hadController || refreshing) return;
     refreshing = true;
     // Pick up new HTML/icons after SW activation (helps home-screen icon refresh).
     location.reload();
